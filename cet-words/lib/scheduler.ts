@@ -4,7 +4,7 @@ import { addDays, dateKey, dayDiff, daysUntil, todayKey } from "./date";
 import { cardFromProgress, retrievability, scheduler, statusOf } from "./fsrs";
 import { SECONDS_PER_NEW_WORD, SECONDS_PER_REVIEW, SPRINT_DAYS, dailyNewTarget } from "./settings";
 import type { NewPlanMode, Progress, Settings, StudyScope, Word, WordStatus } from "./types";
-import { levelField, matchLevel, scopeLabel, scopeMatch, scopeMatchWord } from "./wordbank";
+import { levelOk, scopeLabel, scopeMatch, scopeMatchWord } from "./wordbank";
 
 export interface PlanCounts {
   /** 到期复习 */
@@ -63,10 +63,6 @@ export interface TodayPlan {
   timeBudget: TimeBudget;
 }
 
-function isLevel(p: Progress, level: "l4" | "l6"): boolean {
-  return (level === "l4" ? p.l4 : p.l6) === 1;
-}
-
 const EXTRA_REVIEW_MAX = 8;
 
 /** 没有到期卡片时，挑记忆保持率最低的已学单词做巩固复习（保证每天都有复习） */
@@ -83,15 +79,15 @@ export function pickExtraReview(rows: Progress[], n = EXTRA_REVIEW_MAX): Progres
 export async function buildTodayPlan(s: Settings): Promise<TodayPlan> {
   const now = new Date();
   const nowTs = now.getTime();
-  const field = levelField(s.examType);
-
-  const baseTotal = await db.words.where(field).equals(1).count();
-  const indexRows = await db.index.where(field).equals(1).toArray();
-  const scopeRows = indexRows.filter((r) => scopeMatch(r, s.studyScope));
+  const allIndex = await db.index.toArray();
+  // 六级默认把四级词汇也算进备考范围
+  const levelIndex = allIndex.filter((r) => levelOk(r, s.examType, s.cet6IncludeBase));
+  const baseTotal = levelIndex.length;
+  const scopeRows = levelIndex.filter((r) => scopeMatch(r, s.studyScope));
   const scopedTotal = scopeRows.length;
 
   const allProgress = await db.progress.toArray();
-  const levelProgress = allProgress.filter((p) => isLevel(p, field));
+  const levelProgress = allProgress.filter((p) => levelOk(p, s.examType, s.cet6IncludeBase));
   const learnedWords = new Set(levelProgress.map((p) => p.word));
   const remainingInScope = scopeRows.filter((r) => !learnedWords.has(r.word.toLowerCase())).length;
   const learned = Math.max(0, scopedTotal - remainingInScope);
@@ -211,7 +207,12 @@ export async function buildLearnQueue(s: Settings, limit: number): Promise<Queue
   const pool = await db.words
     .orderBy("priority")
     .reverse()
-    .filter((w) => matchLevel(w, s.examType) && scopeMatchWord(w, s.studyScope) && !learned.has(w.word.toLowerCase()))
+    .filter(
+      (w) =>
+        levelOk(w, s.examType, s.cet6IncludeBase) &&
+        scopeMatchWord(w, s.studyScope) &&
+        !learned.has(w.word.toLowerCase()),
+    )
     .limit(limit)
     .toArray();
   return pool.map((w) => ({ word: w, mode: "new" as QueueMode, isNew: true }));
@@ -263,9 +264,8 @@ function bucketOf(p: Progress, w: Word): string {
 
 export async function buildReviewQueue(s: Settings): Promise<ReviewQueueResult> {
   const nowTs = Date.now();
-  const field = levelField(s.examType);
   const allProgress = await db.progress.toArray();
-  const levelRows = allProgress.filter((p) => isLevel(p, field));
+  const levelRows = allProgress.filter((p) => levelOk(p, s.examType, s.cet6IncludeBase));
   const dueRows = levelRows.filter((p) => p.due <= nowTs);
   // 每天都要有复习：没有到期的词时，挑记忆最弱的巩固一下
   const extraRows = dueRows.length === 0 ? pickExtraReview(levelRows) : [];

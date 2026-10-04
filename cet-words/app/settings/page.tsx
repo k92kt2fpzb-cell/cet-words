@@ -38,7 +38,12 @@ export default function SettingsPage() {
   const { settings, update } = useSettings();
   const cet4Count = useLiveQuery(() => db.words.where("l4").equals(1).count(), [], 0);
   const cet6Count = useLiveQuery(() => db.words.where("l6").equals(1).count(), [], 0);
-  const scopeInfo = useLiveQuery(() => (settings ? scopeCounts(settings.examType) : null), [settings?.examType]);
+  const cet6Only = useLiveQuery(() => db.index.filter((r) => r.l6 === 1 && r.l4 === 0).count(), [], 0);
+  const cet6Union = useLiveQuery(() => db.index.filter((r) => r.l6 === 1 || r.l4 === 1).count(), [], 0);
+  const scopeInfo = useLiveQuery(
+    () => (settings ? scopeCounts(settings.examType, settings.cet6IncludeBase) : null),
+    [settings?.examType, settings?.cet6IncludeBase],
+  );
   const plan = useLiveQuery(() => (settings ? buildTodayPlan(settings) : null), [settings]);
   const [keyDraft, setKeyDraft] = useState("");
   const [testing, setTesting] = useState(false);
@@ -93,11 +98,30 @@ export default function SettingsPage() {
             >
               <div className="text-sm font-semibold text-slate-900">{lv === "CET4" ? "英语四级 CET-4" : "英语六级 CET-6"}</div>
               <div className="mt-0.5 text-xs text-slate-500">
-                {lv === "CET4" ? `${cet4Count} 词` : `${cet6Count} 词`} · 含真题词频与熟词僻义
+                {lv === "CET4"
+                  ? `${cet4Count} 词 · 含真题词频与熟词僻义`
+                  : `六级新增 ${cet6Only} 词 · 考纲合计（含四级）${cet6Union} 词`}
               </div>
             </button>
           ))}
         </div>
+        {settings.examType === "CET6" ? (
+          <label className="mt-3 flex items-center justify-between rounded-xl border border-slate-200 p-3.5">
+            <span>
+              <span className="text-sm text-slate-800">备考范围包含四级词汇</span>
+              <span className="mt-0.5 block text-xs text-slate-500">
+                六级考试会用到四级词，默认包含（合计 {cet6Union} 词）；关掉后只学六级新增的 {cet6Only} 个词，
+                适合四级刚考完、想在短期内冲六级的同学。
+              </span>
+            </span>
+            <input
+              type="checkbox"
+              checked={settings.cet6IncludeBase}
+              onChange={(e) => update({ cet6IncludeBase: e.target.checked })}
+              className="h-5 w-5 accent-indigo-600"
+            />
+          </label>
+        ) : null}
       </Card>
 
       <Card>

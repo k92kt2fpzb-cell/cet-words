@@ -2,7 +2,7 @@ import { db } from "./db";
 import { addDays, dateKey, todayKey } from "./date";
 import { retrievability, statusOf } from "./fsrs";
 import type { DayStat, Settings, WordStatus } from "./types";
-import { levelField } from "./wordbank";
+import { levelOk } from "./wordbank";
 
 export async function getDay(key: string = todayKey()): Promise<DayStat> {
   return (await db.days.get(key)) ?? { date: key, newWords: 0, reviews: 0, durationMs: 0 };
@@ -70,11 +70,10 @@ export async function retentionRate(): Promise<number> {
 export interface StatusCounts extends Record<WordStatus, number> {}
 
 export async function statusCounts(s: Settings): Promise<StatusCounts> {
-  const field = levelField(s.examType);
-  const rows = (await db.progress.toArray()).filter((p) => (field === "l4" ? p.l4 : p.l6) === 1);
+  const rows = (await db.progress.toArray()).filter((p) => levelOk(p, s.examType, s.cet6IncludeBase));
   const counts: StatusCounts = { new: 0, learning: 0, short: 0, long: 0, mastered: 0, lapsed: 0 };
   for (const p of rows) counts[statusOf(p)]++;
-  const total = await db.words.where(field).equals(1).count();
+  const total = (await db.index.toArray()).filter((r) => levelOk(r, s.examType, s.cet6IncludeBase)).length;
   counts.new = Math.max(0, total - rows.length);
   return counts;
 }
@@ -108,14 +107,9 @@ export async function lifetimeTotals(): Promise<{ newWords: number; reviews: num
 
 /** 熟词僻义专项掌握率（多义项且多词性的词） */
 export async function polyStats(s: Settings): Promise<{ total: number; learned: number; mastered: number }> {
-  const field = levelField(s.examType);
-  const total = await db.index
-    .where(field)
-    .equals(1)
-    .filter((r) => r.poly === 1)
-    .count();
+  const total = (await db.index.toArray()).filter((r) => levelOk(r, s.examType, s.cet6IncludeBase) && r.poly === 1).length;
   const rows = (await db.progress.toArray()).filter(
-    (p) => (field === "l4" ? p.l4 : p.l6) === 1 && (p.poly === 1 || p.polyManual === 1),
+    (p) => levelOk(p, s.examType, s.cet6IncludeBase) && (p.poly === 1 || p.polyManual === 1),
   );
   return {
     total,

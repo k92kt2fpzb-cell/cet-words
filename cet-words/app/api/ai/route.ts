@@ -6,12 +6,16 @@ export const dynamic = "force-dynamic";
 const DEFAULT_BASE = "https://api.deepseek.com";
 
 interface AiRequest {
-  task: "mnemonic" | "example" | "explain" | "test";
+  task: "mnemonic" | "example" | "explain" | "test" | "expressions" | "extract-url";
   word?: string;
   senses?: { pos: string; cn: string; en: string }[];
   examTypes?: Record<string, number>;
   major?: string;
   question?: string;
+  theme?: string;
+  kind?: "writing" | "translation";
+  url?: string;
+  sourceText?: string;
   model?: string;
   stream?: boolean;
 }
@@ -23,7 +27,7 @@ function json(data: unknown, status = 200) {
   });
 }
 
-function buildMessages(body: AiRequest): { role: string; content: string }[] | null {
+function buildMessages(body: AiRequest, sourceText = ""): { role: string; content: string }[] | null {
   const word = (body.word || "").trim();
   const senses = (body.senses || [])
     .map((s) => `${s.pos ? s.pos + " " : ""}${s.cn}${s.en ? "（" + s.en + "）" : ""}`)
@@ -96,6 +100,40 @@ function buildMessages(body: AiRequest): { role: string; content: string }[] | n
     ];
   }
 
+  const expressionSystem =
+    "你是中国大学生的四六级写作与翻译老师。请给出可以直接背诵、套用的地道表达。" +
+    "每一行严格使用这个格式：英文表达 || 中文意思 || 一句话用法说明。" +
+    "不要编号、不要标题、不要解释、不要额外文字。";
+
+  if (body.task === "expressions") {
+    const kind = body.kind === "translation" ? "翻译" : "写作";
+    const theme = (body.theme || "").trim();
+    return [
+      { role: "system", content: expressionSystem },
+      {
+        role: "user",
+        content: theme
+          ? `请给出四六级${kind}中围绕「${theme}」这个主题最常用的 12 条高频表达，按格式输出 12 行。`
+          : `请给出四六级${kind}中最通用的 12 条高分表达（万能句型 / 高频短语），按格式输出 12 行。`,
+      },
+    ];
+  }
+
+  if (body.task === "extract-url") {
+    if (!sourceText) return null;
+    const kind = body.kind === "translation" ? "翻译" : "写作";
+    return [
+      { role: "system", content: expressionSystem },
+      {
+        role: "user",
+        content:
+          `下面是从网页抓取的文字。请从中提炼出 15 条适合四六级${kind}的高频表达` +
+          "（如果原文是中文，请给出对应的英文表达），按格式输出 15 行，忽略与英语学习无关的内容。\n\n" +
+          sourceText,
+      },
+    ];
+  }
+
   return null;
 }
 
@@ -116,7 +154,41 @@ export async function POST(req: NextRequest) {
     .trim()
     .replace(/\/+$/, "");
   const model = (body.model || "deepseek-chat").trim();
-  const messages = buildMessages(body);
+
+  // 网页提取：先在服务端抓取网页并转成纯文本，再交给模型提炼
+  let sourceText = "";
+  if (body.task === "extract-url") {
+    const target = (body.url || "").trim();
+    if (!/^https?:\/\//i.test(target)) {
+      return json({ error: "请填写完整的网页地址（以 http:// 或 https:// 开头）" }, 400);
+    }
+    try {
+      const page = await fetch(target, {
+        headers: { "user-agent": "Mozilla/5.0 (compatible; CETWords/1.0)", accept: "text/html,*/*" },
+        signal: AbortSignal.timeout(20000),
+      });
+      if (!page.ok) return json({ error: `网页抓取失败：HTTP ${page.status}` }, 502);
+      const html = await page.text();
+      sourceText = html
+        .replace(/<script[\s\S]*?<\/script>/gi, " ")
+        .replace(/<style[\s\S]*?<\/style>/gi, " ")
+        .replace(/<[^>]+>/g, " ")
+        .replace(/&nbsp;/g, " ")
+        .replace(/&amp;/g, "&")
+        .replace(/&lt;/g, "<")
+        .replace(/&gt;/g, ">")
+        .replace(/\s+/g, " ")
+        .trim()
+        .slice(0, 8000);
+      if (sourceText.length < 200) {
+        return json({ error: "这个网页抓到的内容太少（可能需要登录或由脚本渲染），换一个页面试试" }, 400);
+      }
+    } catch (err) {
+      return json({ error: `网页抓取失败：${(err as Error).message}` }, 502);
+    }
+  }
+
+  const messages = buildMessages(body, sourceText);
   if (!messages) return json({ error: "未知的 AI 任务类型或缺少参数" }, 400);
 
   const stream = body.stream !== false;
@@ -130,7 +202,7 @@ export async function POST(req: NextRequest) {
         messages,
         stream,
         temperature: body.task === "test" ? 0 : 1,
-        max_tokens: body.task === "test" ? 16 : 1200,
+        max_tokens: body.task === "test" ? 16 : body.task === "expressions" || body.task === "extract-url" ? 900 : 1200,
       }),
     });
   } catch (err) {

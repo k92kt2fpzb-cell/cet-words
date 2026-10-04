@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { BarChart3, BookOpen, Home, Library, Loader2, RefreshCw, Settings as SettingsIcon } from "lucide-react";
+import { BarChart3, BookOpen, Home, Library, Loader2, PenLine, RefreshCw, Settings as SettingsIcon } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
 import { ensureBankLoaded } from "@/lib/wordbank";
 
@@ -11,6 +11,7 @@ const NAV = [
   { href: "/learn", label: "学习", icon: BookOpen },
   { href: "/review", label: "复习", icon: RefreshCw },
   { href: "/vocabulary", label: "单词本", icon: Library },
+  { href: "/expressions", label: "表达库", icon: PenLine },
   { href: "/stats", label: "数据", icon: BarChart3 },
 ];
 
@@ -114,7 +115,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         <div className="mx-auto max-w-4xl px-4 py-6 md:px-8">{children}</div>
       </main>
 
-      <nav className="fixed inset-x-0 bottom-0 z-20 grid grid-cols-5 border-t border-slate-200 bg-white/95 backdrop-blur md:hidden">
+      <nav className="fixed inset-x-0 bottom-0 z-20 grid grid-cols-6 border-t border-slate-200 bg-white/95 backdrop-blur md:hidden">
         {NAV.map((item) => {
           const active = pathname === item.href;
           const Icon = item.icon;

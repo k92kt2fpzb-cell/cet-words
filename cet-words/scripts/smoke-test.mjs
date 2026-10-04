@@ -203,6 +203,12 @@ async function main() {
           value,
         )}); el.dispatchEvent(new Event("input", { bubbles: true })); return true; })()`,
       );
+    const setInputAt = (index, value) =>
+      cdp.eval(
+        `(() => { const el = document.querySelectorAll("input")[${index}]; if (!el) return false; const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set; setter.call(el, ${JSON.stringify(
+          value,
+        )}); el.dispatchEvent(new Event("input", { bubbles: true })); return true; })()`,
+      );
     const setRange = (index, value) =>
       cdp.eval(
         `(() => { const el = document.querySelectorAll('input[type="range"]')[${index}]; if (!el) return false; const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set; setter.call(el, "${value}"); el.dispatchEvent(new Event("input", { bubbles: true })); el.dispatchEvent(new Event("change", { bubbles: true })); return el.value; })()`,
@@ -305,6 +311,26 @@ async function main() {
     todayText = (await text()).replace(/\s+/g, " ");
     check("今日页变为考前背完模式", todayText.includes("考前背完 · 每日目标") && /倒推需要 \d+ 个 \/ 天/.test(todayText));
     await shot("06-exam-plan");
+
+    // ---------- 3.5 六级备考范围默认包含四级词汇 ----------
+    await goto("/settings");
+    await waitFor(async () => (await text()).includes("考试类型"), "设置页考试类型");
+    check("切到英语六级", await clickText("button", "英语六级"));
+    await sleep(700);
+    let examText = (await text()).replace(/\s+/g, " ");
+    check("设置页显示六级新增与考纲合计", /六级新增 580 词 · 考纲合计（含四级）4770 词/.test(examText), examText.match(/六级新增[^）]*）/)?.[0] ?? "");
+    check("默认勾选“包含四级词汇”", examText.includes("备考范围包含四级词汇"));
+    check("六级「考纲全量」= 4770（四级 + 六级）", /考纲全量 4770 词/.test(examText), examText.match(/考纲全量 \d+ 词/)?.[0] ?? "");
+    // 关掉“包含四级词汇”后应只剩六级新增的 580 词
+    await cdp.eval("(() => { const el = document.querySelectorAll('input[type=\"checkbox\"]')[0]; if (!el) return false; el.click(); return true; })()");
+    await sleep(800);
+    examText = (await text()).replace(/\s+/g, " ");
+    check("关闭后六级范围 = 1228（仅六级词表）", /考纲全量 1228 词/.test(examText), examText.match(/考纲全量 \d+ 词/)?.[0] ?? "");
+    await cdp.eval("(() => { const el = document.querySelectorAll('input[type=\"checkbox\"]')[0]; if (!el) return false; el.click(); return true; })()");
+    await sleep(800);
+    examText = (await text()).replace(/\s+/g, " ");
+    check("重新打开后恢复 4770", /考纲全量 4770 词/.test(examText));
+    await shot("17-cet6-with-base");
 
     // ---------- 4. 复习（含答错重现与次日排期） ----------
     const forced = await forceAllDue();
@@ -430,12 +456,46 @@ async function main() {
         await sleep(2000);
       }
       check("AI 助记返回结构化中文内容", aiOk && aiPanelText.length > 60, aiPanelText.replace(/\s+/g, " ").slice(0, 120));
-      const aiCache = await cdp.eval(
-        `new Promise((res) => { const r = indexedDB.open("cet-words"); r.onsuccess = () => { const db = r.result; const tx = db.transaction("ai"); const c = tx.objectStore("ai").count(); c.onsuccess = () => res(c.result); }; })`,
+      const aiCache = await waitFor(
+        async () => {
+          const n = await cdp.eval(
+            `new Promise((res) => { const r = indexedDB.open("cet-words"); r.onsuccess = () => { const db = r.result; const tx = db.transaction("ai"); const c = tx.objectStore("ai").count(); c.onsuccess = () => res(c.result); }; })`,
+          );
+          return n > 0 ? n : 0;
+        },
+        "AI 结果写入本地缓存",
+        30000,
       );
       check("AI 结果写入本地缓存", aiCache >= 1, `ai rows=${aiCache}`);
       await shot("12-ai-mnemonic");
       await clickText("button", "关闭");
+
+      // ---------- 7.5 写作 / 翻译表达库 ----------
+      await goto("/expressions");
+      await waitFor(async () => (await text()).includes("写作 · 翻译表达库"), "表达库页面");
+      const exprText = (await text()).replace(/\s+/g, " ");
+      check("表达库含真题高分句与句式模板", exprText.includes("高分句式模板") && /写作高分句型/.test(exprText));
+      check("表达库统计真题句数", /写作 · \d+ 条高分句/.test(exprText), exprText.match(/写作 · \d+ 条高分句/)?.[0] ?? "");
+      await setInput("input", "important");
+      await sleep(600);
+      check("表达库搜索过滤生效", /共 \d+ 条/.test((await text()).replace(/\s+/g, " ")));
+      await setInput("input", "");
+      await setInputAt(1, "环境保护");
+      check("点击生成 AI 表达包", await clickText("button", "生成"));
+      const exprRows = await waitFor(
+        async () => {
+          const n = await cdp.eval(
+            `new Promise((res) => { const r = indexedDB.open("cet-words"); r.onsuccess = () => { const db = r.result; const tx = db.transaction("expr"); const c = tx.objectStore("expr").count(); c.onsuccess = () => res(c.result); }; })`,
+          );
+          return n > 0 ? n : 0;
+        },
+        "AI 表达写入本地",
+        90000,
+      );
+      check("AI 表达包写入本地库", exprRows > 0, `expr rows=${exprRows}`);
+      const exprAfter = (await text()).replace(/\s+/g, " ");
+      check("我的表达显示 AI 生成结果", exprAfter.includes("AI 生成") && exprAfter.includes("环境保护"));
+      await shot("18-expressions-ai");
     }
 
     // ---------- 8. 数据页 ----------

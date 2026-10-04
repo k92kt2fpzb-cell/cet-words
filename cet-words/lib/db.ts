@@ -1,5 +1,5 @@
 import Dexie, { type Table } from "dexie";
-import type { AiCacheRow, DayStat, Progress, ReviewLog, Word, WordIndexRow } from "./types";
+import type { AiCacheRow, DayStat, ExpressionRow, Progress, ReviewLog, Word, WordIndexRow } from "./types";
 
 interface MetaRow {
   key: string;
@@ -14,6 +14,7 @@ export class CetWordsDB extends Dexie {
   days!: Table<DayStat, string>;
   meta!: Table<MetaRow, string>;
   ai!: Table<AiCacheRow, string>;
+  expr!: Table<ExpressionRow, number>;
 
   constructor() {
     super("cet-words");
@@ -33,6 +34,9 @@ export class CetWordsDB extends Dexie {
       days: "date",
       meta: "key",
       ai: "key, word, task, updatedAt",
+    });
+    this.version(3).stores({
+      expr: "++id, kind, source, theme, createdAt",
     });
   }
 }

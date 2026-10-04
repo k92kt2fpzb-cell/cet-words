@@ -18,6 +18,7 @@ export const DEFAULT_SETTINGS: Settings = {
   examBufferDays: 14,
   batchReview: 8,
   autoAiMnemonic: false,
+  cet6IncludeBase: true,
 };
 
 /** 排课用的时间估算：每张新词卡约 40 秒，每张复习卡约 12 秒 */

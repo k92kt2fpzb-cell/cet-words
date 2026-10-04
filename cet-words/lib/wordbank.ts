@@ -7,6 +7,17 @@ export function levelField(level: Level): "l4" | "l6" {
   return level === "CET4" ? "l4" : "l6";
 }
 
+/** 判断一个单词是否属于当前备考范围：六级默认把四级词汇也算上 */
+export function levelOk(flags: { l4: number; l6: number }, level: Level, includeBase: boolean): boolean {
+  if (level === "CET4") return flags.l4 === 1;
+  return flags.l6 === 1 || (includeBase && flags.l4 === 1);
+}
+
+export function levelLabel(level: Level, includeBase: boolean): string {
+  if (level === "CET4") return "CET-4";
+  return includeBase ? "CET-6（含四级词汇）" : "CET-6（仅六级新增词）";
+}
+
 export function matchLevel(w: Word, level: Level): boolean {
   return (level === "CET4" ? w.l4 : w.l6) === 1;
 }
@@ -108,8 +119,8 @@ export function scopeMatchWord(w: Word, scope: StudyScope): boolean {
 }
 
 /** 当前级别下各词单的单词数量 */
-export async function scopeCounts(level: Level): Promise<Record<StudyScope, number>> {
-  const rows = await db.index.where(levelField(level)).equals(1).toArray();
+export async function scopeCounts(level: Level, includeBase = false): Promise<Record<StudyScope, number>> {
+  const rows = (await db.index.toArray()).filter((r) => levelOk(r, level, includeBase));
   const counts: Record<StudyScope, number> = { all: rows.length, core: 0, sprint: 0, exam: 0, poly: 0 };
   for (const row of rows) {
     if (scopeMatch(row, "core")) counts.core += 1;

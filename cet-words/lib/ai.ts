@@ -140,6 +140,57 @@ export async function testAiConnection(
   }
 }
 
+export interface AiExpression {
+  en: string;
+  cn: string;
+  note: string;
+}
+
+/** 解析 AI 返回的「英文 || 中文 || 说明」表达列表 */
+export function parseExpressions(text: string): AiExpression[] {
+  const rows: AiExpression[] = [];
+  for (const raw of text.split(/\r?\n/)) {
+    const line = raw
+      .replace(/^\s*\d+[.、)\]]\s*/, "")
+      .replace(/^[-*•]\s*/, "")
+      .trim();
+    if (!line.includes("||")) continue;
+    const parts = line.split("||").map((s) => s.trim());
+    if (parts.length >= 2 && parts[0]) rows.push({ en: parts[0], cn: parts[1] ?? "", note: parts[2] ?? "" });
+  }
+  return rows;
+}
+
+/** 生成 / 提取表达：按主题让 AI 写，或从网页里提取 */
+export async function generateExpressions(
+  settings: Settings,
+  opts: { kind: "writing" | "translation"; theme?: string; url?: string },
+): Promise<{ rows: AiExpression[]; error?: string }> {
+  try {
+    const res = await fetch("/api/ai", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-ai-key": settings.aiKey || "",
+        "x-ai-base": settings.aiBaseUrl || "",
+      },
+      body: JSON.stringify({
+        task: opts.url ? "extract-url" : "expressions",
+        kind: opts.kind,
+        theme: opts.theme,
+        url: opts.url,
+        model: settings.aiModel,
+        stream: false,
+      }),
+    });
+    const data = (await res.json()) as { reply?: string; error?: string };
+    if (!res.ok || data.error) return { rows: [], error: data.error || `HTTP ${res.status}` };
+    return { rows: parseExpressions(data.reply || "") };
+  } catch (err) {
+    return { rows: [], error: `请求失败：${(err as Error).message}` };
+  }
+}
+
 /** 极简 Markdown 渲染所需的分行处理（加粗、标题、列表） */
 export function aiLines(text: string): { kind: "h" | "li" | "p" | "blank"; text: string }[] {
   return text.split(/\r?\n/).map((line) => {

@@ -13,7 +13,7 @@ import { useAsync, useSettings } from "@/lib/hooks";
 import { setPolyManual, setTroublesome, toggleFavorite } from "@/lib/scheduler";
 import { speak } from "@/lib/speech";
 import type { Progress, Word } from "@/lib/types";
-import { matchLevel } from "@/lib/wordbank";
+import { levelOk } from "@/lib/wordbank";
 
 type CatKey = "all" | "new" | "learning" | "mastered" | "favorite" | "wrong" | "troublesome" | "poly" | "high" | "exam";
 
@@ -76,14 +76,13 @@ export default function VocabularyPage() {
 
   const { data, loading, reload } = useAsync(async () => {
     if (!settings) return { total: 0, words: [] as Word[] };
-    const field = settings.examType === "CET4" ? "l4" : "l6";
     const progress = await db.progress.toArray();
     const pmap = new Map(progress.map((p) => [p.word, p]));
-    const levelProgress = progress.filter((p) => (field === "l4" ? p.l4 : p.l6) === 1);
+    const levelProgress = progress.filter((p) => levelOk(p, settings.examType, settings.cet6IncludeBase));
 
     let ids: number[] = [];
     if (cat === "all" || cat === "new" || cat === "poly" || cat === "high" || cat === "exam") {
-      const list = await db.index.where(field).equals(1).toArray();
+      const list = (await db.index.toArray()).filter((r) => levelOk(r, settings.examType, settings.cet6IncludeBase));
       let filtered = list;
       if (cat === "poly") filtered = list.filter((r) => r.poly === 1);
       if (cat === "high") filtered = list.filter((r) => (r.tier ?? 6) <= 2);
@@ -108,7 +107,10 @@ export default function VocabularyPage() {
     if (q) {
       if (isChinese(q)) {
         const hits = await db.words
-          .filter((w) => matchLevel(w, settings.examType) && w.trans.some((t) => t.cn.includes(q)))
+          .filter(
+            (w) =>
+              levelOk(w, settings.examType, settings.cet6IncludeBase) && w.trans.some((t) => t.cn.includes(q)),
+          )
           .limit(80)
           .toArray();
         const allowed = new Set(hits.map((w) => w.id));

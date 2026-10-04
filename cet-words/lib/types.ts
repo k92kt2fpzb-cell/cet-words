@@ -131,6 +131,18 @@ export interface AiCacheRow {
   updatedAt: number;
 }
 
+/** AI 生成 / 网页提取的表达（写作、翻译表达库） */
+export interface ExpressionRow {
+  id?: number;
+  kind: "writing" | "translation";
+  source: "ai" | "web";
+  theme: string;
+  en: string;
+  cn: string;
+  note: string;
+  createdAt: number;
+}
+
 export interface ReviewLog {
   id?: number;
   word: string;
@@ -171,4 +183,6 @@ export interface Settings {
   batchReview: number;
   /** 学新词时自动调用 AI 助记（需要自己填 Key） */
   autoAiMnemonic: boolean;
+  /** 六级备考是否包含四级词汇（六级考试会用到四级词，默认包含） */
+  cet6IncludeBase: boolean;
 }
