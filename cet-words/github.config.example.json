@@ -1,0 +1,7 @@
+{
+  "repo": "git@github.com:你的用户名/cet-words.git",
+  "mainBranch": "main",
+  "feedBranch": "feed",
+  "keyPath": "C:/Users/Lenovo/.ssh/cet_words_github",
+  "publicBaseUrl": "https://你的用户名.github.io/cet-words"
+}

@@ -9,3 +9,5 @@ data-src/
 dist/
 # 部署配置（含服务器信息，不入库）
 deploy.config.json
+# GitHub 发布配置（含仓库地址，不入库）
+github.config.json

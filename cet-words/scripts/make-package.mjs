@@ -116,6 +116,14 @@ writeText(path.join(fullDir, "tools/update.ps1"), readText("tools/update.ps1"), 
 writeText(path.join(fullDir, "version.txt"), `${version}\n`);
 fs.copyFileSync(path.join(root, "cet-words.ico"), path.join(fullDir, "cet-words.ico"));
 
+// 许可证与第三方声明：源码包和安装包都必须带上（词库数据是 BSD 3-Clause）
+for (const f of ["LICENSE", "THIRD-PARTY-NOTICES.md"]) {
+  fs.copyFileSync(path.join(root, f), path.join(fullDir, f));
+  fs.copyFileSync(path.join(root, f), path.join(payloadApp, "public", f));
+}
+copyDir(path.join(root, "licenses"), path.join(fullDir, "licenses"));
+copyDir(path.join(root, "licenses"), path.join(payloadApp, "public", "licenses"));
+
 const fullZip = path.join(distDir, `${fullName}.zip`);
 zipDirContents(fullDir, fullZip);
 

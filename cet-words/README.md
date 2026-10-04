@@ -97,3 +97,35 @@ node scripts/build-wordbank.mjs   # 生成 public/data/wordbank.json
 
 构建脚本把音标、释义、例句、短语、同义词、词根词缀、真题例句（含年份与题型）归一化，并按
 `真题出现次数 → 熟词僻义 → 词库顺序` 计算新词学习优先级。
+
+## 分享给朋友（免安装版）
+
+```bash
+node scripts/make-package.mjs        # 生成 dist/CET-Words-<版本>-win64.zip（含 Node 运行时）
+```
+
+对方解压后双击「安装到桌面.cmd」即可，不需要安装任何环境。安装包内置**自动更新**：
+启动时读取程序目录的 `update-config.txt`，如果配置了更新源（`update.json` 的直链地址），
+有新版本会只下载约 7 MB 的应用负载并自动替换，朋友不用重新接收安装包。
+
+发布新版本：
+
+```bash
+# 1) 改大 package.json 里的 version
+# 2) 生成完整包 + 更新包 + 更新清单
+node scripts/make-package.mjs
+# 3) 上传 dist/update/ 里的两个文件到你的更新源（ssh / 对象存储 / 手动三种方式）
+node scripts/deploy-update.mjs       # 见 deploy.config.example.json
+```
+
+`dist/发布更新说明.txt` 里有逐步说明。更新校验使用 sha256，下载后校验不通过会自动放弃并继续用旧版本。
+
+## 许可证与致谢
+
+- 本项目代码：**MIT License**，见 [LICENSE](./LICENSE)。
+- 词库与真题例句数据：来自 **KyleBing/english-vocabulary**（**BSD 3-Clause**，
+  Copyright (c) 2022-2026, KyleBing）。本项目与其作者**没有隶属或背书关系**，
+  仅按 BSD 3-Clause 条款在保留版权与许可声明的前提下使用其数据。
+- 第三方组件与 Node.js 运行时的许可证清单：[THIRD-PARTY-NOTICES.md](./THIRD-PARTY-NOTICES.md)。
+
+分发源码或安装包时请一并保留 `LICENSE`、`THIRD-PARTY-NOTICES.md` 与 `licenses/` 目录。
