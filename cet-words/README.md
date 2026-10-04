@@ -30,7 +30,17 @@ npm run build
 
 ## 打开软件（日常使用）
 
-双击项目根目录的 **`启动 CET Words.cmd`**：它会启动服务并自动打开浏览器
+**桌面图标（推荐）**：桌面和开始菜单里的 **CET Words** 图标（由 `pwsh -File scripts/create-shortcuts.ps1` 创建）
+双击即用：本地服务没在运行会自动在后台启动，然后用 **Edge** 的独立应用窗口打开
+（`--app` 模式：没有地址栏和标签页，任务栏上是独立图标，和普通桌面软件一样）；
+重复双击不会重复启动服务。可以右键固定到任务栏或开始屏幕。
+
+- 重新生成图标：`pwsh -File scripts/make-icon.ps1`
+- 想换浏览器：改 `CET Words.vbs` 里 `FindBrowser` 的候选顺序（默认 Edge → Chrome）
+- 学习数据保存在打开它的那个浏览器里，请固定用桌面图标打开
+- 日志：`%TEMP%\cet-words-launcher.log`、`%TEMP%\cet-words-server.log`
+
+**备用方式**：双击项目根目录的 **`启动 CET Words.cmd`**：它会启动服务并自动打开浏览器
 （`http://localhost:3100`），关闭那个黑窗口即退出程序。首次运行若缺少构建产物会自动构建。
 
 也可以手动启动：
