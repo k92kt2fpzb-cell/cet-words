@@ -2,7 +2,7 @@ import { createEmptyCard, Rating, State, type Grade } from "ts-fsrs";
 import { db, blankProgress } from "./db";
 import { addDays, dateKey, dayDiff, daysUntil, todayKey } from "./date";
 import { cardFromProgress, isSameSession, scheduler, statusOf } from "./fsrs";
-import { SPRINT_DAYS, dailyNewTarget } from "./settings";
+import { SECONDS_PER_NEW_WORD, SECONDS_PER_REVIEW, SPRINT_DAYS, dailyNewTarget } from "./settings";
 import type { Progress, Settings, Word, WordStatus } from "./types";
 import { levelField, matchLevel } from "./wordbank";
 
@@ -28,6 +28,7 @@ export interface TodayPlan {
   mastered: number;
   learning: number;
   newTarget: number;
+  rawNewTarget: number;
   baseTarget: number;
   catchUp: number;
   lagging: number;
@@ -41,6 +42,15 @@ export interface TodayPlan {
   todayDurationMs: number;
   todayTotal: number;
   todayDone: number;
+  timeBudget: {
+    minutes: number;
+    reviewMinutes: number;
+    newMinutes: number;
+    usedMinutes: number;
+    newCap: number;
+    capped: boolean;
+    over: boolean;
+  };
 }
 
 function isLevel(p: Progress, level: "l4" | "l6"): boolean {
@@ -68,17 +78,31 @@ export async function buildTodayPlan(s: Settings): Promise<TodayPlan> {
   const reviewBufferDays = Math.min(21, Math.max(7, Math.round(Math.max(0, daysLeft) * 0.25)));
   const studyDaysLeft = Math.max(1, daysLeft - reviewBufferDays);
   const suggestedDaily = Math.min(200, Math.max(s.dailyNew, Math.ceil(remaining / studyDaysLeft)));
-  const newTarget = Math.min(remaining, dailyNewTarget(s, daysLeft, lagging));
-  const catchUp = Math.max(0, newTarget - Math.min(s.dailyNew, newTarget));
-  const firstRoundDays = newTarget > 0 ? Math.ceil(remaining / newTarget) : 0;
 
   const dueAll = levelProgress.filter((p) => p.due <= nowTs);
   const counts: PlanCounts = {
     due: dueAll.length,
     lapsed: dueAll.filter((p) => p.state === State.Relearning).length,
     stubborn: dueAll.filter((p) => p.troublesome === 1).length,
-    poly: dueAll.filter((p) => p.poly === 1).length,
+    poly: dueAll.filter((p) => p.poly === 1 || p.polyManual === 1).length,
     exam: dueAll.filter((p) => p.examCount > 0).length,
+  };
+
+  // 每日学习时间真正参与排课：先安排复习，剩余时间才用来学新词
+  const reviewMinutes = (counts.due * SECONDS_PER_REVIEW) / 60;
+  const newCap = Math.floor((Math.max(0, s.dailyMinutes - reviewMinutes) * 60) / SECONDS_PER_NEW_WORD);
+  const rawNewTarget = Math.min(remaining, dailyNewTarget(s, daysLeft, lagging));
+  const newTarget = Math.max(0, Math.min(rawNewTarget, newCap));
+  const catchUp = Math.max(0, newTarget - Math.min(s.dailyNew, newTarget));
+  const firstRoundDays = newTarget > 0 ? Math.ceil(remaining / newTarget) : 0;
+  const timeBudget = {
+    minutes: s.dailyMinutes,
+    reviewMinutes: Math.round(reviewMinutes),
+    newMinutes: Math.round((newTarget * SECONDS_PER_NEW_WORD) / 60),
+    usedMinutes: Math.round(reviewMinutes + (newTarget * SECONDS_PER_NEW_WORD) / 60),
+    newCap,
+    capped: newTarget < rawNewTarget,
+    over: reviewMinutes >= s.dailyMinutes,
   };
 
   const day = (await db.days.get(todayKey())) ?? { date: todayKey(), newWords: 0, reviews: 0, durationMs: 0 };
@@ -94,6 +118,7 @@ export async function buildTodayPlan(s: Settings): Promise<TodayPlan> {
     mastered: levelProgress.filter((p) => statusOf(p) === "mastered").length,
     learning: levelProgress.filter((p) => ["learning", "short", "long", "lapsed"].includes(statusOf(p))).length,
     newTarget,
+    rawNewTarget,
     baseTarget: s.dailyNew,
     catchUp,
     lagging,
@@ -107,6 +132,7 @@ export async function buildTodayPlan(s: Settings): Promise<TodayPlan> {
     todayDurationMs: day.durationMs,
     todayTotal,
     todayDone,
+    timeBudget,
   };
 }
 
@@ -154,7 +180,38 @@ function reviewScore(p: Progress, w: Word, sprint: boolean): number {
 }
 
 /** 今日复习队列：顽固词 / 遗忘词 优先，其次是逾期最久、真题频率最高的词 */
-export async function buildReviewQueue(s: Settings): Promise<QueueCard[]> {
+export interface SprintMixRow {
+  label: string;
+  target: number;
+  actual: number;
+}
+
+export interface ReviewQueueResult {
+  cards: QueueCard[];
+  sprint: boolean;
+  capacity: number;
+  mix: SprintMixRow[];
+}
+
+/** 冲刺模式配额（对应产品文档 §9 的推荐权重） */
+const SPRINT_MIX = [
+  { key: "high", label: "高频词", ratio: 0.3 },
+  { key: "wrong", label: "错词", ratio: 0.2 },
+  { key: "lapsed", label: "遗忘词", ratio: 0.2 },
+  { key: "exam", label: "真题词", ratio: 0.15 },
+  { key: "poly", label: "熟词僻义", ratio: 0.1 },
+] as const;
+
+function bucketOf(p: Progress, w: Word): string {
+  if (p.state === State.Relearning) return "lapsed";
+  if (p.lapses > 0) return "wrong";
+  if (p.poly === 1 || p.polyManual === 1) return "poly";
+  if ((w.tier ?? 6) <= 2) return "high";
+  if (w.exam.count > 0) return "exam";
+  return "core";
+}
+
+export async function buildReviewQueue(s: Settings): Promise<ReviewQueueResult> {
   const nowTs = Date.now();
   const field = levelField(s.examType);
   const due = await db.progress.where("due").belowOrEqual(nowTs).toArray();
@@ -162,18 +219,48 @@ export async function buildReviewQueue(s: Settings): Promise<QueueCard[]> {
   const words = await db.words.bulkGet(rows.map((r) => r.wordId));
   const sprint = daysUntil(s.examDate) <= SPRINT_DAYS;
 
-  const items: { card: QueueCard; score: number }[] = [];
+  const items: { card: QueueCard; score: number; bucket: string }[] = [];
   rows.forEach((p, i) => {
     const w = words[i];
     if (!w) return;
     const mode: QueueMode =
       p.troublesome === 1 ? "stubborn" : p.state === State.Relearning ? "lapsed" : w.exam.count > 0 ? "exam" : "due";
-    items.push({ card: { word: w, mode, isNew: false, progress: p }, score: reviewScore(p, w, sprint) });
+    items.push({
+      card: { word: w, mode, isNew: false, progress: p },
+      score: reviewScore(p, w, sprint),
+      bucket: bucketOf(p, w),
+    });
   });
-  return items
-    .sort((a, b) => b.score - a.score)
-    .slice(0, 300)
-    .map((it) => it.card);
+  items.sort((a, b) => b.score - a.score);
+
+  if (!sprint) {
+    return { cards: items.slice(0, 300).map((it) => it.card), sprint: false, capacity: items.length, mix: [] };
+  }
+
+  // 冲刺阶段按配额组卷，容量按每日学习时间折算（每分钟约 5 张复习卡）
+  const capacity = Math.min(items.length, Math.max(20, Math.round(s.dailyMinutes * 5)));
+  const targets = SPRINT_MIX.map((m) => ({ key: m.key as string, label: m.label, target: Math.round(capacity * m.ratio) }));
+  const picked: typeof items = [];
+  const used: Record<string, number> = {};
+  for (const t of targets) {
+    const pool = items.filter((it) => it.bucket === t.key && !picked.includes(it));
+    for (const it of pool) {
+      if ((used[t.key] ?? 0) >= t.target) break;
+      picked.push(it);
+      used[t.key] = (used[t.key] ?? 0) + 1;
+    }
+  }
+  for (const it of items) {
+    if (picked.length >= capacity) break;
+    if (!picked.includes(it)) picked.push(it);
+  }
+  picked.sort((a, b) => b.score - a.score);
+  return {
+    cards: picked.slice(0, capacity).map((it) => it.card),
+    sprint: true,
+    capacity,
+    mix: targets.map((t) => ({ label: t.label, target: t.target, actual: used[t.key] ?? 0 })),
+  };
 }
 
 export interface RatingResult {
@@ -228,6 +315,7 @@ export async function recordRating(opts: {
     hardStreak,
     goodStreak,
     totalReviews: (existing?.totalReviews ?? 0) + 1,
+    polyManual: existing?.polyManual ?? 0,
   };
 
   const isNew = !existing;
@@ -274,6 +362,14 @@ export async function setTroublesome(word: Word, value: boolean): Promise<void> 
   const existing = await db.progress.get(key);
   const base = existing ?? { ...blankProgress(word), due: Date.now() + 3650 * 86400000 };
   await db.progress.put({ ...base, troublesome: value ? 1 : 0, updatedAt: Date.now() });
+}
+
+/** 手动把单词加入 / 移出“熟词僻义专项” */
+export async function setPolyManual(word: Word, value: boolean): Promise<void> {
+  const key = word.word.toLowerCase();
+  const existing = await db.progress.get(key);
+  const base = existing ?? { ...blankProgress(word), due: Date.now() + 3650 * 86400000 };
+  await db.progress.put({ ...base, polyManual: value ? 1 : 0, updatedAt: Date.now() });
 }
 
 export async function resetAllProgress(): Promise<void> {

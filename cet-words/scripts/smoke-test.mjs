@@ -221,6 +221,10 @@ async function main() {
     check("学习页出现单词卡", firstWord.length > 1, `word=${firstWord}`);
     const learnText = await text();
     check("学习页主动回忆三个按钮", ["认识", "模糊", "不认识"].every((k) => learnText.includes(k)));
+    check(
+      "单词卡显示考试分层标签",
+      /(高频真题词|高频核心词|熟词僻义|真题词|中频词|低频词)/.test(learnText),
+    );
     const totalBefore = Number((learnText.match(/1 \/ (\d+)/) || [])[1]);
     await shot("02-learn-recall");
     check("点击“认识”进入答案阶段", await clickText("button", "认识"));
@@ -287,6 +291,23 @@ async function main() {
     );
     await shot("06b-review-graded");
 
+    // 3.5 每日学习时间真正参与排课（10 分钟预算 -> 新词上限 15）
+    await goto("/settings");
+    await waitFor(async () => (await text()).includes("每日学习计划"), "设置页");
+    await cdp.eval(
+      `(() => { const el = document.querySelectorAll('input[type="range"]')[1]; const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set; setter.call(el, "10"); el.dispatchEvent(new Event("input", { bubbles: true })); el.dispatchEvent(new Event("change", { bubbles: true })); return el.value; })()`,
+    );
+    await sleep(700);
+    await goto("/");
+    await waitFor(async () => (await text()).includes("时间预算"), "今日页时间预算");
+    const budgetText = (await text()).replace(/\s+/g, " ");
+    check("今日页显示时间预算明细", /时间预算：复习约 \d+ 分钟 \+ 新词约 \d+ 分钟 = \d+ \/ 10 分钟/.test(budgetText), budgetText.slice(0, 90));
+    check(
+      "时间预算把每日新词从 30 限制到 15",
+      /今日新词 15 /.test(budgetText) && budgetText.includes("受时间预算限制"),
+    );
+    await shot("13-time-budget");
+
     // 4. 单词本：分类 + 搜索 + 详情
     await goto("/vocabulary");
     await waitFor(async () => (await text()).includes("单词本"), "单词本页面");
@@ -306,7 +327,76 @@ async function main() {
     const detail = await text();
     check("详情包含真题分布/搭配/记忆辅助信息", /真题|搭配|词根/.test(detail) && /(阅读|听力|写作|文本)/.test(detail));
     await shot("08-vocabulary-detail");
+
+    // 4.1 熟词僻义专项（手动加入）
+    check("点击加入熟词僻义专项", await clickText("button", "加入熟词僻义专项"));
+    await sleep(700);
+    const polyRow = await cdp.eval(
+      `new Promise((res) => { const r = indexedDB.open("cet-words"); r.onsuccess = () => { const db = r.result; const tx = db.transaction("progress"); const g = tx.objectStore("progress").get("significant"); g.onsuccess = () => res(g.result ? { polyManual: g.result.polyManual } : null); }; })`,
+    );
+    check("熟词僻义专项写入本地进度", polyRow?.polyManual === 1, JSON.stringify(polyRow));
     await clickText("button", "关闭");
+
+    // 4.5 AI 助手（真实 DeepSeek 调用，Key 从本机 opencodex 配置读取，不打印）
+    const aiKey = (() => {
+      try {
+        const cfg = JSON.parse(fs.readFileSync("C:/Users/Lenovo/.opencodex/config.json", "utf8"));
+        return cfg?.providers?.deepseek?.apiKey || "";
+      } catch {
+        return "";
+      }
+    })();
+    check("读取到本机 DeepSeek Key（仅用于本次验证）", aiKey.startsWith("sk-"));
+    if (aiKey) {
+      const injected = await cdp.eval(
+        `new Promise((res) => { const r = indexedDB.open("cet-words"); r.onsuccess = () => { const db = r.result; const tx = db.transaction("meta", "readwrite"); const store = tx.objectStore("meta"); const g = store.get("settings"); g.onsuccess = () => { const row = g.result || { key: "settings", value: {} }; row.value = { ...row.value, aiKey: ${JSON.stringify(
+          aiKey,
+        )} }; store.put(row); }; tx.oncomplete = () => res(true); tx.onerror = () => res("tx-error"); }; })`,
+      );
+      check("AI Key 写入本地设置", injected === true, String(injected));
+      const stored = await cdp.eval(
+        `new Promise((res) => { const r = indexedDB.open("cet-words"); r.onsuccess = () => { const db = r.result; const tx = db.transaction("meta"); const g = tx.objectStore("meta").get("settings"); g.onsuccess = () => { const v = g.result?.value || {}; res({ keyLen: (v.aiKey || "").length, stores: [...db.objectStoreNames] }); }; }; })`,
+      );
+      check("本地已保存 Key 且 ai 缓存表存在", (stored?.keyLen ?? 0) > 20 && (stored?.stores ?? []).includes("ai"), JSON.stringify(stored));
+      await goto("/vocabulary");
+      await waitFor(async () => (await text()).includes("单词本"), "单词本（AI 测试）");
+      await setInput("input", "significant");
+      await waitFor(async () => (await text()).toLowerCase().includes("significant"), "搜索 significant");
+      await clickText("button.card", "significant");
+      await waitFor(async () => (await text()).includes("AI 助手"), "AI 面板出现");
+      let hintGone = false;
+      for (let i = 0; i < 12; i++) {
+        if (!(await text()).includes("还没有配置 DeepSeek")) {
+          hintGone = true;
+          break;
+        }
+        await sleep(500);
+      }
+      check("AI 面板识别到已配置 Key", hintGone);
+      check("点击 AI 助记", await clickText("button", "AI 助记"));
+      const panelExpr = `(() => { const c = [...document.querySelectorAll("div.card")].find(e => e.textContent.includes("AI 助手")); return c ? c.innerText : "(no panel)"; })()`;
+      let aiPanelText = "";
+      let aiOk = false;
+      for (let i = 0; i < 30; i++) {
+        aiPanelText = (await cdp.eval(panelExpr)) || "";
+        if (/(词根拆解|联想记忆|一句话记忆)/.test(aiPanelText) || /(失败|错误|Exception|error)/i.test(aiPanelText)) {
+          aiOk = !/失败|错误|error/i.test(aiPanelText);
+          break;
+        }
+        await sleep(2000);
+      }
+      check(
+        "AI 助记返回结构化中文内容",
+        aiOk && aiPanelText.length > 60,
+        aiPanelText.replace(/\s+/g, " ").slice(0, 130) || "(无内容)",
+      );
+      const aiCache = await cdp.eval(
+        `new Promise((res) => { const r = indexedDB.open("cet-words"); r.onsuccess = () => { const db = r.result; const tx = db.transaction("ai"); const c = tx.objectStore("ai").count(); c.onsuccess = () => res(c.result); }; })`,
+      );
+      check("AI 结果写入本地缓存", aiCache >= 1, `ai rows=${aiCache}`);
+      await shot("14-ai-mnemonic");
+      await clickText("button", "关闭");
+    }
 
     // 5. 数据页
     await goto("/stats");
@@ -353,6 +443,18 @@ async function main() {
     check("冲刺模式把每日新词降到 5%（30 -> 6）", /今日新词 6 /.test(sprintText), sprintText.slice(0, 60));
     check("冲刺模式显示剩余天数", /考试还有 10 天/.test(sprintText));
     await shot("12-sprint");
+
+    const forcedAgain = await forceAllDue();
+    check("为冲刺组卷重新构造到期卡片", forcedAgain >= 1, `rows=${forcedAgain}`);
+    await goto("/review");
+    await waitFor(async () => (await text()).includes("冲刺配额"), "冲刺配额显示");
+    const mixText = (await text()).replace(/\s+/g, " ");
+    check(
+      "冲刺模式按 30/20/20/15/10 配额组卷",
+      /冲刺配额/.test(mixText) && /高频词 \d+\/\d+/.test(mixText) && /熟词僻义 \d+\/\d+/.test(mixText),
+      mixText.slice(0, 110),
+    );
+    await shot("15-sprint-mix");
 
     // 页面级错误
     const realErrors = errors.filter((e) => !/favicon|Download the React DevTools/i.test(e));

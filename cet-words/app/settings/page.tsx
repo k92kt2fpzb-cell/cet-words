@@ -2,24 +2,42 @@
 
 import { useLiveQuery } from "dexie-react-hooks";
 import { Download, RotateCcw } from "lucide-react";
+import { useEffect, useState } from "react";
+import { testAiConnection } from "@/lib/ai";
 import { Card, btn } from "@/components/ui";
 import { daysUntil, nextCetDate, todayKey } from "@/lib/date";
 import { db } from "@/lib/db";
 import { useSettings } from "@/lib/hooks";
 import { resetAllProgress } from "@/lib/scheduler";
+import { SECONDS_PER_NEW_WORD, SECONDS_PER_REVIEW } from "@/lib/settings";
 import type { Level } from "@/lib/types";
 
 export default function SettingsPage() {
   const { settings, update } = useSettings();
   const cet4Count = useLiveQuery(() => db.words.where("l4").equals(1).count(), [], 0);
   const cet6Count = useLiveQuery(() => db.words.where("l6").equals(1).count(), [], 0);
+  const [keyDraft, setKeyDraft] = useState("");
+  const [testing, setTesting] = useState(false);
+  const [testResult, setTestResult] = useState<{ ok: boolean; message: string; reply?: string } | null>(null);
+  const [serverKey, setServerKey] = useState(false);
+
+  useEffect(() => {
+    if (settings) setKeyDraft(settings.aiKey ?? "");
+  }, [settings?.aiKey]);
+
+  useEffect(() => {
+    fetch("/api/ai")
+      .then((r) => r.json())
+      .then((d: { hasServerKey?: boolean }) => setServerKey(Boolean(d.hasServerKey)))
+      .catch(() => setServerKey(false));
+  }, []);
 
   if (!settings) {
     return <div className="card p-8 text-center text-sm text-slate-500">读取设置中…</div>;
   }
 
   const left = daysUntil(settings.examDate);
-  const estimateMinutes = Math.round(settings.dailyNew * 0.7);
+  const estimateMinutes = Math.round((settings.dailyNew * SECONDS_PER_NEW_WORD) / 60);
 
   async function exportData() {
     const payload = {
@@ -100,7 +118,8 @@ export default function SettingsPage() {
               className="mt-2 w-full accent-indigo-600"
             />
             <p className="mt-1 text-xs text-slate-400">
-              按每个新词约 40 秒估算，当前目标约需 {estimateMinutes} 分钟（不含复习）。
+              按每个新词约 {SECONDS_PER_NEW_WORD} 秒估算，当前目标约需 {estimateMinutes} 分钟；复习每张约{" "}
+              {SECONDS_PER_REVIEW} 秒。排课时会先扣掉复习用时，剩余时间才安排新词。
             </p>
           </div>
 
@@ -139,6 +158,84 @@ export default function SettingsPage() {
             ：减少低频新词，优先复习高频词、错词、遗忘词、真题词与熟词僻义。当前状态：
             <span className="font-medium text-rose-600">{left <= 20 && left >= 0 ? "已开启" : "未开启"}</span>
           </div>
+        </div>
+      </Card>
+
+      <Card>
+        <h2 className="text-base font-semibold text-slate-900">AI 助手（DeepSeek）</h2>
+        <p className="mt-1 text-xs text-slate-500">
+          AI 助记 / AI 例句 / AI 解释通过本机 /api/ai 代理调用 DeepSeek，Key 只保存在这台电脑的浏览器里。
+          {serverKey ? " 同时检测到服务端已配置 DEEPSEEK_API_KEY。" : ""}
+        </p>
+        <div className="mt-4 space-y-3">
+          <label className="block">
+            <span className="text-xs text-slate-600">API Key</span>
+            <input
+              type="password"
+              autoComplete="off"
+              value={keyDraft}
+              onChange={(e) => setKeyDraft(e.target.value)}
+              onBlur={() => update({ aiKey: keyDraft.trim() })}
+              placeholder={serverKey ? "已配置服务端 Key，可留空" : "sk-..."}
+              className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-indigo-300"
+            />
+          </label>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <label className="block">
+              <span className="text-xs text-slate-600">模型</span>
+              <select
+                value={settings.aiModel}
+                onChange={(e) => update({ aiModel: e.target.value })}
+                className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-indigo-300"
+              >
+                <option value="deepseek-chat">deepseek-chat（响应快）</option>
+                <option value="deepseek-reasoner">deepseek-reasoner（推理强）</option>
+              </select>
+            </label>
+            <label className="block">
+              <span className="text-xs text-slate-600">接口地址</span>
+              <input
+                value={settings.aiBaseUrl}
+                onChange={(e) => update({ aiBaseUrl: e.target.value })}
+                onBlur={(e) => update({ aiBaseUrl: e.target.value.trim() || "https://api.deepseek.com" })}
+                className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-indigo-300"
+              />
+            </label>
+          </div>
+          <label className="block">
+            <span className="text-xs text-slate-600">专业 / 兴趣背景（用于生成贴合你的 AI 例句）</span>
+            <input
+              value={settings.aiMajor}
+              onChange={(e) => update({ aiMajor: e.target.value })}
+              placeholder="例如：工科、计算机、医学、喜欢旅行"
+              className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-indigo-300"
+            />
+          </label>
+          <div className="flex flex-wrap items-center gap-3">
+            <button
+              className={btn.ghost}
+              disabled={testing}
+              onClick={async () => {
+                setTesting(true);
+                setTestResult(null);
+                const res = await testAiConnection({ ...settings, aiKey: keyDraft.trim() });
+                setTestResult(res);
+                setTesting(false);
+              }}
+            >
+              {testing ? "测试中…" : "测试连接"}
+            </button>
+            {testResult ? (
+              <span className={testResult.ok ? "text-xs text-emerald-600" : "text-xs text-rose-600"}>
+                {testResult.message}
+                {testResult.ok && testResult.reply ? ` · 回复：${testResult.reply.trim().slice(0, 20)}` : ""}
+              </span>
+            ) : null}
+          </div>
+          <p className="text-xs text-slate-400">
+            也可以不填 Key，改用项目根目录的 .env.local（DEEPSEEK_API_KEY=sk-xxx，服务端注入，重启服务生效）。
+            AI 结果会缓存在本地，同一个单词不会重复消耗额度。
+          </p>
         </div>
       </Card>
 

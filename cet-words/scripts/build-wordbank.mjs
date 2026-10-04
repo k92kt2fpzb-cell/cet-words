@@ -34,7 +34,12 @@ const stats = {
   multiPos: 0,
   withRem: 0,
   withSentences: 0,
+  tiers: {},
+  weighted: {},
 };
+
+// 各题型在考试里的权重（阅读最高，翻译/文本类最低）
+export const TYPE_WEIGHT = { 阅读理解: 1, 听力题: 0.9, 写作题: 0.8, 文本题: 0.7, 其他: 0.6 };
 
 /** @type {Map<string, any>} */
 const byWord = new Map();
@@ -151,13 +156,48 @@ for (const { level, file } of SOURCES) {
   }
 }
 
-// 考试权重排序：真题出现次数 + 星级 + 词库顺序
+// 真题加权分：按题型权重累计（阅读 1.0 / 听力 0.9 / 写作 0.8 / 翻译文本 0.7）
+function weightedExam(exam) {
+  let score = 0;
+  for (const [type, count] of Object.entries(exam.byType || {})) {
+    score += count * (TYPE_WEIGHT[type] ?? TYPE_WEIGHT.其他);
+  }
+  return Math.round(score * 100) / 100;
+}
+
+// 按真题加权分的分位数切分“高频/中频”，避免固定阈值过于极端
+const scoredValues = [...byWord.values()]
+  .map((w) => weightedExam(w.exam))
+  .filter((v) => v > 0)
+  .sort((a, b) => a - b);
+const quantile = (p) => scoredValues[Math.min(scoredValues.length - 1, Math.floor(scoredValues.length * p))] ?? 0;
+const HIGH_CUT = quantile(0.95);
+const MID_CUT = quantile(0.72);
+
 const words = [...byWord.values()].map((w, i) => {
   const senseCount = w.trans.length;
   const posCount = new Set(w.trans.map((t) => t.pos).filter(Boolean)).size;
   const poly = senseCount >= 2 && posCount >= 2;
-  const priority = w.exam.count * 100 + w.star * 25 + (poly ? 8 : 0) + (w.levels.length > 1 ? 6 : 0) - w.rank / 1000;
-  return { ...w, senseCount, posCount, poly, priority: Math.round(priority * 100) / 100, id: 0 };
+  const weighted = weightedExam(w.exam);
+  const both = w.levels.length > 1;
+  // 考试优先级阶梯（对应产品文档 §6）：高频真题词 → 高频核心词 → 熟词僻义 → 真题词 → 中频词 → 低频词
+  let tier = 6;
+  if (weighted >= HIGH_CUT) tier = 1;
+  else if (weighted >= MID_CUT) tier = 2;
+  else if (poly) tier = 3;
+  else if (weighted >= 1) tier = 4;
+  else if (both) tier = 5;
+  const priority = (7 - tier) * 100000 + weighted * 100 + (poly ? 8 : 0) + (both ? 6 : 0) - w.rank / 1000;
+  return {
+    ...w,
+    senseCount,
+    posCount,
+    poly,
+    weighted,
+    tier,
+    priority: Math.round(priority * 100) / 100,
+    id: 0,
+  };
 }).sort((a, b) => b.priority - a.priority || a.word.localeCompare(b.word));
 
 words.forEach((w, i) => {
@@ -168,6 +208,11 @@ fs.mkdirSync(path.dirname(outFile), { recursive: true });
 fs.writeFileSync(outFile, JSON.stringify({ generatedAt: new Date().toISOString(), count: words.length, words }));
 
 stats.words = words.length;
+for (const w of words) {
+  stats.tiers[w.tier] = (stats.tiers[w.tier] || 0) + 1;
+  const bucket = Math.min(5, Math.floor(w.weighted));
+  stats.weighted[bucket] = (stats.weighted[bucket] || 0) + 1;
+}
 console.log("--- 统计 ---");
 console.log("唯一单词:", stats.words, "/ 原始行:", stats.lines);
 console.log("星级分布(star:count):", JSON.stringify(stats.star));
@@ -176,4 +221,7 @@ console.log("真题句数分布(0..10):", JSON.stringify(stats.exam));
 console.log("真题题型:", JSON.stringify(stats.examTypes));
 console.log("多词性多义项(熟词僻义候选):", stats.multiPos);
 console.log("有记忆法 remMethod:", stats.withRem, " 有例句:", stats.withSentences);
+console.log("分层 tier(1高频真题词..6低频词):", JSON.stringify(stats.tiers));
+console.log("加权分分布(0..5+):", JSON.stringify(stats.weighted));
+console.log("分位阈值: 高频 >=", HIGH_CUT, " 中高频 >=", MID_CUT);
 console.log("输出:", outFile, (fs.statSync(outFile).size / 1024 / 1024).toFixed(2) + " MB");

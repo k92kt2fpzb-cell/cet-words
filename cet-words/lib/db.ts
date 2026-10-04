@@ -1,5 +1,5 @@
 import Dexie, { type Table } from "dexie";
-import type { DayStat, Progress, ReviewLog, Word, WordIndexRow } from "./types";
+import type { AiCacheRow, DayStat, Progress, ReviewLog, Word, WordIndexRow } from "./types";
 
 interface MetaRow {
   key: string;
@@ -13,6 +13,7 @@ export class CetWordsDB extends Dexie {
   logs!: Table<ReviewLog, number>;
   days!: Table<DayStat, string>;
   meta!: Table<MetaRow, string>;
+  ai!: Table<AiCacheRow, string>;
 
   constructor() {
     super("cet-words");
@@ -23,6 +24,15 @@ export class CetWordsDB extends Dexie {
       logs: "++id, word, wordId, ts, mode, rating",
       days: "date",
       meta: "key",
+    });
+    this.version(2).stores({
+      words: "id, word, priority, l4, l6",
+      index: "id, word, priority, l4, l6, poly, examCount, tier",
+      progress: "word, wordId, due, state, favorite, troublesome, updatedAt, l4, l6, poly",
+      logs: "++id, word, wordId, ts, mode, rating",
+      days: "date",
+      meta: "key",
+      ai: "key, word, task, updatedAt",
     });
   }
 }
@@ -57,5 +67,6 @@ export function blankProgress(word: Word): Progress {
     hardStreak: 0,
     goodStreak: 0,
     totalReviews: 0,
+    polyManual: 0,
   };
 }

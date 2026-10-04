@@ -9,7 +9,15 @@ export const DEFAULT_SETTINGS: Settings = {
   dailyMinutes: 30,
   weekendBoost: false,
   createdAt: 0,
+  aiKey: "",
+  aiBaseUrl: "https://api.deepseek.com",
+  aiModel: "deepseek-chat",
+  aiMajor: "",
 };
+
+/** 排课用的时间估算：每张新词卡约 40 秒，每张复习卡约 12 秒 */
+export const SECONDS_PER_NEW_WORD = 40;
+export const SECONDS_PER_REVIEW = 12;
 
 export async function getSettings(): Promise<Settings> {
   const row = await db.meta.get("settings");

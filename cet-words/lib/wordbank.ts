@@ -20,10 +20,10 @@ export async function ensureBankLoaded(
 ): Promise<{ total: number; imported: boolean }> {
   const res = await fetch("/data/wordbank.json", { cache: "force-cache" });
   if (!res.ok) throw new Error(`词库加载失败: ${res.status}`);
-  const data = (await res.json()) as { count: number; words: Word[] };
+  const data = (await res.json()) as { count: number; generatedAt: string; words: Word[] };
   const meta = await db.meta.get(BANK_KEY);
-  const savedCount = (meta?.value as { count?: number } | undefined)?.count;
-  if (savedCount === data.count && (await db.words.count()) === data.count) {
+  const saved = meta?.value as { count?: number; version?: string } | undefined;
+  if (saved?.version === data.generatedAt && (await db.words.count()) === data.count) {
     return { total: data.count, imported: false };
   }
 
@@ -46,11 +46,24 @@ export async function ensureBankLoaded(
         l6: w.l6,
         poly: w.poly ? 1 : 0,
         examCount: w.exam.count,
+        tier: w.tier ?? 6,
+        weighted: w.weighted ?? w.exam.count,
       })),
     );
     onProgress?.(Math.min(i + BATCH, words.length), words.length);
   }
-  await db.meta.put({ key: BANK_KEY, value: { count: data.count, loadedAt: Date.now() } });
+  // 词库重建后 word id 会变化：同步 progress 里的 wordId，避免复习队列取错词
+  const idByWord = new Map(words.map((w) => [w.word.toLowerCase(), w.id]));
+  const rows = await db.progress.toArray();
+  const updates = rows
+    .filter((r) => idByWord.has(r.word) && idByWord.get(r.word) !== r.wordId)
+    .map((r) => ({ ...r, wordId: idByWord.get(r.word) as number }));
+  if (updates.length) await db.progress.bulkPut(updates);
+
+  await db.meta.put({
+    key: BANK_KEY,
+    value: { count: data.count, version: data.generatedAt, loadedAt: Date.now() },
+  });
   return { total: data.count, imported: true };
 }
 

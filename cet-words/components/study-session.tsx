@@ -18,6 +18,7 @@ import {
 } from "@/lib/scheduler";
 import type { Progress } from "@/lib/types";
 import { useSettings } from "@/lib/hooks";
+import { AiPanel } from "./ai-panel";
 import { Badge, EmptyState, ProgressBar, btn } from "./ui";
 import { WordCard } from "./word-card";
 
@@ -49,8 +50,12 @@ export function StudySession({ mode }: { mode: "learn" | "review" }) {
   const { data: loaded, loading } = useAsync(async () => {
     if (!settings) return null;
     const plan = await buildTodayPlan(settings);
-    const queue = mode === "learn" ? await buildLearnQueue(settings, plan.newTarget) : await buildReviewQueue(settings);
-    return { plan, queue };
+    if (mode === "learn") {
+      const queue = await buildLearnQueue(settings, plan.newTarget);
+      return { plan, queue, mix: [], capacity: 0 };
+    }
+    const review = await buildReviewQueue(settings);
+    return { plan, queue: review.cards, mix: review.mix, capacity: review.capacity };
   }, [settings, mode, round]);
 
   const plan: TodayPlan | null = loaded?.plan ?? null;
@@ -233,7 +238,22 @@ export function StudySession({ mode }: { mode: "learn" | "review" }) {
         </div>
       ) : null}
 
+      {mode === "review" && loaded?.mix?.length ? (
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-xl bg-rose-50 px-3 py-2 text-[11px] text-rose-700">
+          <span className="font-medium">冲刺配额</span>
+          {loaded.mix.map((m) => (
+            <span key={m.label} className="tabular-nums">
+              {m.label} {m.actual}/{m.target}
+            </span>
+          ))}
+          <span>新词 {plan.newTarget}</span>
+          <span className="text-rose-400">共 {loaded.capacity} 张</span>
+        </div>
+      ) : null}
+
       <WordCard word={current.word} reveal={stage === 0 ? 0 : stage === 1 ? 1 : 2} />
+
+      {stage >= 2 ? <AiPanel word={current.word} /> : null}
 
       {stage === 0 ? (
         <div className="space-y-2">

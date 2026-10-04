@@ -115,7 +115,7 @@ export async function polyStats(s: Settings): Promise<{ total: number; learned: 
     .filter((r) => r.poly === 1)
     .count();
   const rows = (await db.progress.toArray()).filter(
-    (p) => (field === "l4" ? p.l4 : p.l6) === 1 && p.poly === 1,
+    (p) => (field === "l4" ? p.l4 : p.l6) === 1 && (p.poly === 1 || p.polyManual === 1),
   );
   return {
     total,

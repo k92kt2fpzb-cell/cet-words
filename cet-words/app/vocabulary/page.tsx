@@ -3,13 +3,14 @@
 import { useLiveQuery } from "dexie-react-hooks";
 import { Search, Star, TriangleAlert, Volume2, X } from "lucide-react";
 import { useState } from "react";
+import { AiPanel } from "@/components/ai-panel";
 import { Badge, Card, btn } from "@/components/ui";
-import { WordCard, examStars } from "@/components/word-card";
+import { WordCard, tierStars } from "@/components/word-card";
 import { STATUS_LABEL, humanInterval, statusOf } from "@/lib/fsrs";
 import { formatCnDate } from "@/lib/date";
 import { db } from "@/lib/db";
 import { useAsync, useSettings } from "@/lib/hooks";
-import { setTroublesome, toggleFavorite } from "@/lib/scheduler";
+import { setPolyManual, setTroublesome, toggleFavorite } from "@/lib/scheduler";
 import { speak } from "@/lib/speech";
 import type { Progress, Word } from "@/lib/types";
 import { matchLevel } from "@/lib/wordbank";
@@ -85,7 +86,7 @@ export default function VocabularyPage() {
       const list = await db.index.where(field).equals(1).toArray();
       let filtered = list;
       if (cat === "poly") filtered = list.filter((r) => r.poly === 1);
-      if (cat === "high") filtered = list.filter((r) => r.examCount >= 6);
+      if (cat === "high") filtered = list.filter((r) => (r.tier ?? 6) <= 2);
       if (cat === "exam") filtered = list.filter((r) => r.examCount > 0);
       if (cat === "new") filtered = list.filter((r) => !pmap.has(r.word.toLowerCase()));
       filtered.sort((a, b) => b.priority - a.priority);
@@ -186,8 +187,8 @@ export default function VocabularyPage() {
                 </div>
               </div>
               <div className="flex shrink-0 items-center gap-2 text-[11px] text-slate-400">
-                {w.exam.count > 0 ? <span>真题 {w.exam.count}</span> : null}
-                <span>{examStars(w.exam.count).stars}</span>
+                <span>{tierStars(w.tier ?? 6).label}</span>
+                <span>{tierStars(w.tier ?? 6).stars}</span>
               </div>
             </button>
           );
@@ -228,6 +229,16 @@ export default function VocabularyPage() {
                   <TriangleAlert className="h-3.5 w-3.5" />
                   {selectedProgress?.troublesome === 1 ? "取消顽固标记" : "标记为顽固词"}
                 </button>
+                <button
+                  className={`${btn.ghost} py-1.5 text-xs`}
+                  onClick={async () => {
+                    await setPolyManual(selected, selectedProgress?.polyManual !== 1);
+                    reload();
+                  }}
+                >
+                  <TriangleAlert className="h-3.5 w-3.5" />
+                  {selectedProgress?.polyManual === 1 ? "移出熟词僻义专项" : "加入熟词僻义专项"}
+                </button>
               </div>
               <button className={`${btn.ghost} py-1.5 text-xs`} onClick={() => setSelected(null)}>
                 <X className="h-3.5 w-3.5" />
@@ -236,6 +247,8 @@ export default function VocabularyPage() {
             </div>
 
             <WordCard word={selected} reveal={2} />
+
+            <AiPanel word={selected} />
 
             <Card>
               <h3 className="text-sm font-semibold text-slate-900">学习数据</h3>

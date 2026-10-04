@@ -3,15 +3,14 @@
 import { Star, Volume2 } from "lucide-react";
 import type { ReactNode } from "react";
 import { speak } from "@/lib/speech";
+import { TIER_DESC, TIER_LABEL, TIER_STARS } from "@/lib/tiers";
 import type { Word } from "@/lib/types";
 import { Badge } from "./ui";
 
-export function examStars(count: number): { stars: string; label: string } {
-  if (count >= 11) return { stars: "★★★★★", label: "超高频真题词" };
-  if (count >= 6) return { stars: "★★★★☆", label: "高频真题词" };
-  if (count >= 3) return { stars: "★★★☆☆", label: "真题常客" };
-  if (count >= 1) return { stars: "★★☆☆☆", label: "真题出现过" };
-  return { stars: "★☆☆☆☆", label: "核心词" };
+/** 高频等级：由词库分层（真题题型加权分位）决定 */
+export function tierStars(tier: number): { stars: string; label: string; desc: string } {
+  const key = [1, 2, 3, 4, 5, 6].includes(tier) ? tier : 6;
+  return { stars: TIER_STARS[key], label: TIER_LABEL[key], desc: TIER_DESC[key] };
 }
 
 function Block({ title, children }: { title: string; children: ReactNode }) {
@@ -24,7 +23,7 @@ function Block({ title, children }: { title: string; children: ReactNode }) {
 }
 
 export function WordCard({ word, reveal }: { word: Word; reveal: 0 | 1 | 2 }) {
-  const freq = examStars(word.exam.count);
+  const freq = tierStars(word.tier ?? 6);
   const uk = word.uk ? `/${word.uk}/` : "";
   const us = word.us ? `/${word.us}/` : "";
 
@@ -64,11 +63,19 @@ export function WordCard({ word, reveal }: { word: Word; reveal: 0 | 1 | 2 }) {
             {lv === "CET4" ? "CET-4" : "CET-6"}
           </Badge>
         ))}
-        <Badge tone="amber">
-          <Star className="mr-1 h-3 w-3" />
-          {freq.label}
-        </Badge>
-        {word.exam.count > 0 ? <Badge tone="emerald">近十年真题 {word.exam.count} 次</Badge> : null}
+        <span title={freq.desc}>
+          <Badge tone={(word.tier ?? 6) <= 2 ? "amber" : (word.tier ?? 6) === 3 ? "sky" : "slate"}>
+            <Star className="mr-1 h-3 w-3" />
+            {freq.label}
+            <span className="ml-1 tracking-tight">{freq.stars}</span>
+          </Badge>
+        </span>
+        {word.exam.count > 0 ? (
+          <Badge tone="emerald">
+            真题 {word.exam.count} 次
+            {word.weighted ? ` · 加权 ${word.weighted}` : ""}
+          </Badge>
+        ) : null}
         {word.poly ? <Badge tone="sky">熟词僻义</Badge> : null}
       </div>
 

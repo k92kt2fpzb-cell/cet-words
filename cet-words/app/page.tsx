@@ -122,6 +122,18 @@ export default function TodayPage() {
             <span>复习 {plan.todayReviews}</span>
             <span>学习时长 {formatDuration(plan.todayDurationMs)}</span>
           </div>
+          <div className="mt-1.5 text-xs text-slate-500">
+            时间预算：复习约 {plan.timeBudget.reviewMinutes} 分钟 + 新词约 {plan.timeBudget.newMinutes} 分钟 ={" "}
+            {plan.timeBudget.usedMinutes} / {plan.timeBudget.minutes} 分钟
+            {plan.timeBudget.capped ? (
+              <span className="ml-1 text-amber-600">
+                （受时间预算限制，新词从 {plan.rawNewTarget} 调整为 {plan.newTarget}）
+              </span>
+            ) : null}
+            {plan.timeBudget.over ? (
+              <span className="ml-1 text-rose-600">（复习已占满今日预算，先清复习债务）</span>
+            ) : null}
+          </div>
         </div>
 
         <Link href={startHref} className={`${btn.primary} mt-5 w-full py-3 text-base`}>
@@ -176,7 +188,10 @@ export default function TodayPage() {
               {plan.newTarget}
               {plan.catchUp > 0 ? <span className="ml-1 text-xs text-amber-600">含追赶 +{plan.catchUp}</span> : null}
             </div>
-            <div className="text-[11px] text-slate-400">基础 {plan.baseTarget} 个 / 天</div>
+            <div className="text-[11px] text-slate-400">
+              基础 {plan.baseTarget} 个 / 天
+              {plan.timeBudget.capped ? ` · 预算上限 ${plan.timeBudget.newCap} 个` : ""}
+            </div>
           </div>
         </div>
       </Card>

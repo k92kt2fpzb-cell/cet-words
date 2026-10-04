@@ -60,6 +60,10 @@ export interface Word {
   senseCount: number;
   posCount: number;
   poly: boolean;
+  /** 题型加权真题分（阅读 1.0 / 听力 0.9 / 写作 0.8 / 文本 0.7） */
+  weighted: number;
+  /** 考试优先级分层：1 高频真题词 → 6 低频词 */
+  tier: number;
   priority: number;
   l4: number;
   l6: number;
@@ -76,6 +80,8 @@ export interface WordIndexRow {
   l6: number;
   poly: number;
   examCount: number;
+  tier: number;
+  weighted: number;
 }
 
 /** 用户学习数据（IndexedDB progress 表），主键为小写单词 */
@@ -106,6 +112,17 @@ export interface Progress {
   hardStreak: number;
   goodStreak: number;
   totalReviews: number;
+  /** 用户手动加入“熟词僻义专项” */
+  polyManual: number;
+}
+
+export interface AiCacheRow {
+  key: string;
+  word: string;
+  task: string;
+  model: string;
+  text: string;
+  updatedAt: number;
 }
 
 export interface ReviewLog {
@@ -132,4 +149,10 @@ export interface Settings {
   dailyMinutes: number;
   weekendBoost: boolean;
   createdAt: number;
+  /** DeepSeek（或兼容 OpenAI 协议的服务）配置 */
+  aiKey: string;
+  aiBaseUrl: string;
+  aiModel: string;
+  /** AI 例句的个性化背景，例如“工科学生” */
+  aiMajor: string;
 }
