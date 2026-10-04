@@ -1,0 +1,10 @@
+{
+  "name": "CET Words · 四六级背单词",
+  "short_name": "CET Words",
+  "description": "四六级智能词汇学习与记忆管理系统",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f1f5f9",
+  "theme_color": "#4f46e5",
+  "icons": []
+}

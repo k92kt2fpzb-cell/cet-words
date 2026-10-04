@@ -1,0 +1,38 @@
+# CET Words · 四六级智能词汇学习与记忆管理系统
+
+按 `CET_Words_Product_Plan.md` 实现的四六级背单词软件（V1 全部功能 + 依赖现有词库数据的 V2 项）。
+
+## 功能
+
+- **今日**：考试倒计时、今日任务（待复习 / 今日新词 / 顽固词）、今日进度、连续学习天数、掌握统计、落后追赶建议、冲刺模式提示。
+- **学习**：按考试权重排序的新词队列，四阶段流程 —— 主动回忆（认识 / 模糊 / 不认识）→ 展示释义例句 → 记忆辅助（记忆法 / 词根词缀 / 常见搭配 / 真题语境）→ FSRS 四档评分（Again / Hard / Good / Easy，带预计间隔）。
+- **复习**：Review First，到期复习 / 遗忘词 / 顽固词 / 熟词僻义 / 真题高频统一排期；学习中的卡片会在同一组内再次出现。
+- **单词本**：全部 / 未学习 / 学习中 / 已掌握 / 收藏 / 错词 / 顽固词 / 熟词僻义 / 真题词，支持中英文搜索、单词详情与 FSRS 记忆数据。
+- **数据**：今日 / 本周 / 累计学习、掌握分布、连续学习、学习曲线（7 天 / 30 天 / 全部）、预计记忆保持率、未来 7 天复习量。
+- **设置**：四级 / 六级、考试日期、每日新词数、每日学习时间、周末加强模式、数据导出与重置。
+
+## 技术栈
+
+- Next.js（App Router）+ TypeScript + Tailwind CSS
+- IndexedDB（Dexie）本地保存词库与学习进度，无需后端
+- ts-fsrs（FSRS）间隔重复调度
+
+## 开发
+
+```bash
+npm install
+npm run dev     # http://localhost:3100
+npm run build
+```
+
+## 词库
+
+词库来源：[KyleBing/english-vocabulary](https://github.com/KyleBing/english-vocabulary)（四级 4901 行 + 六级 1228 行，合并去重后 4770 个单词）。
+
+```bash
+# 原始 JSONL 放到 data-src/cet4.raw.jsonl 与 data-src/cet6.raw.jsonl
+node scripts/build-wordbank.mjs   # 生成 public/data/wordbank.json
+```
+
+构建脚本把音标、释义、例句、短语、同义词、词根词缀、真题例句（含年份与题型）归一化，并按
+`真题出现次数 → 熟词僻义 → 词库顺序` 计算新词学习优先级。
