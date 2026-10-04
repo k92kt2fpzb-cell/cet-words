@@ -3,7 +3,7 @@
 import { useLiveQuery } from "dexie-react-hooks";
 import { Flame } from "lucide-react";
 import { useState } from "react";
-import { BarChart, Ring, StackedBars } from "@/components/charts";
+import { ActivityCalendar, BarChart, Ring, StackedBars } from "@/components/charts";
 import { Card, ProgressBar, StatCard } from "@/components/ui";
 import { formatCnDate, formatDuration, weekdayCn } from "@/lib/date";
 import { useSettings } from "@/lib/hooks";
@@ -157,6 +157,12 @@ export default function StatsPage() {
           data={(load ?? []).map((p) => ({ label: weekdayCn(p.date), value: p.count, hint: formatCnDate(p.date) }))}
           tone="sky"
         />
+      </Card>
+
+      <Card>
+        <h2 className="text-base font-semibold text-slate-900">学习日历</h2>
+        <p className="mb-3 text-xs text-slate-500">最近 5 周的打卡情况（颜色越深，当天完成的新词 + 复习越多）</p>
+        <ActivityCalendar days={(days ?? []).slice(-35)} />
       </Card>
     </div>
   );

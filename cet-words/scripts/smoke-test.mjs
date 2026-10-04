@@ -314,6 +314,7 @@ async function main() {
     const statsText = await text();
     check("数据页包含今日/本周/保持率", ["今日学习", "本周学习", "预计记忆保持率", "连续学习", "未来 7 天复习量"].every((k) => statsText.includes(k)));
     check("数据页包含熟词僻义掌握率", statsText.includes("熟词僻义掌握率"));
+    check("数据页包含学习日历", statsText.includes("学习日历"));
     await shot("09-stats");
 
     // 6. 设置页：切换六级并持久化
@@ -332,6 +333,26 @@ async function main() {
     await waitFor(async () => (await text()).includes("单词本"), "六级单词本");
     check("单词本切换为 CET-6 词库", (await text()).includes("CET-6 词库"));
     await shot("11-vocabulary-cet6");
+
+    // 7. 冲刺模式：把考试日期改到 10 天后，今日页应提示冲刺并降低新词压力
+    const sprintDate = (() => {
+      const d = new Date(Date.now() + 10 * 86400000);
+      return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+    })();
+    await goto("/settings");
+    await waitFor(async () => (await text()).includes("考试类型"), "设置页");
+    await cdp.eval(
+      `(() => { const el = document.querySelector('input[type="date"]'); const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set; setter.call(el, ${JSON.stringify(
+        sprintDate,
+      )}); el.dispatchEvent(new Event("input", { bubbles: true })); el.dispatchEvent(new Event("change", { bubbles: true })); return el.value; })()`,
+    );
+    await goto("/");
+    await waitFor(async () => (await text()).includes("冲刺模式"), "今日页冲刺模式", 20000);
+    const sprintText = (await text()).replace(/\s+/g, " ");
+    check("冲刺模式提示已开启", sprintText.includes("冲刺模式已开启"));
+    check("冲刺模式把每日新词降到 5%（30 -> 6）", /今日新词 6 /.test(sprintText), sprintText.slice(0, 60));
+    check("冲刺模式显示剩余天数", /考试还有 10 天/.test(sprintText));
+    await shot("12-sprint");
 
     // 页面级错误
     const realErrors = errors.filter((e) => !/favicon|Download the React DevTools/i.test(e));
