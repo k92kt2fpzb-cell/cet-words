@@ -1,8 +1,17 @@
 {
+  "kind": "ssh",
   "host": "139.196.198.4",
   "user": "root",
   "port": 22,
   "keyPath": "C:/Users/Lenovo/.ssh/cet_words_deploy",
   "remoteDir": "/opt/voiceroom/public/cet-words",
-  "publicBaseUrl": "https://139.196.198.4/cet-words"
+  "publicBaseUrl": "https://139.196.198.4/cet-words",
+  "ossPrefix": "oss://桶名/cet-words",
+  "_help": [
+    "kind=ssh    ：有服务器时用（host/user/remoteDir/keyPath）；配好密钥后 scp 免密上传",
+    "kind=oss    ：对象存储（阿里云 OSS / 腾讯云 COS 等）：额外用 ossPrefix，例如 oss://我的桶/cet-words",
+    "              前提：本机已用 ossutil config 配好 AccessKey（密钥只在本机，不进代码）",
+    "kind=manual ：只生成两个文件，自己上传到任意直链托管（不需要任何凭据，最省事）",
+    "publicBaseUrl 是更新源目录对应的公网地址前缀，客户端就是从这里取 update.json"
+  ]
 }
