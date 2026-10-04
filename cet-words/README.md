@@ -28,6 +28,21 @@ npm run build
 > 本机 Node/npm 装在 `C:\Users\Lenovo\.cache\nodejs-lts`，命令前先执行
 > `$env:PATH='C:/Users/Lenovo/.cache/nodejs-lts;'+$env:PATH`。
 
+## 打开软件（日常使用）
+
+双击项目根目录的 **`启动 CET Words.cmd`**：它会启动服务并自动打开浏览器
+（`http://localhost:3100`），关闭那个黑窗口即退出程序。首次运行若缺少构建产物会自动构建。
+
+也可以手动启动：
+
+```powershell
+cd 'E:\ChatGPT-Projects\cet word\cet-words'
+$env:PATH='C:/Users/Lenovo/.cache/nodejs-lts;'+$env:PATH
+npm run dev        # 开发模式（改代码即时生效）
+# 或
+npm run build; npm start   # 生产模式（更快）
+```
+
 ## 验证
 
 ```bash
