@@ -9,4 +9,4 @@
 #   2) 局域网共享：\\电脑名\共享目录\cet-words\update.json
 #
 # 修改后保存即可，下面第一个非注释行就是实际地址：
-# （等选好更新源后再填：把下面这行的 # 去掉并改成你的 update.json 地址）
+https://k92kt2fpzb-cell.github.io/cet-words/update.json
