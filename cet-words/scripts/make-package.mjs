@@ -142,7 +142,7 @@ const manifest = {
   url: `https://把这里换成你的直链地址/cet-words/CET-Words-app-${version}.zip`,
   sha256,
   size: updateSize,
-  notes: "修复 Windows 资源管理器中压缩包显示为空的问题。",
+  notes: "新增阿里云 OSS 国内下载源，更新时可在阿里云与 GitHub 之间切换。",
 };
 writeText(path.join(updateDir, "update.json"), JSON.stringify(manifest, null, 2) + "\n");
 

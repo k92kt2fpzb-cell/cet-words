@@ -16,52 +16,58 @@ try {
   $configPath = Join-Path $root 'update-config.txt'
   if (-not (Test-Path -LiteralPath $configPath)) { Write-Log 'no update-config.txt, skip'; exit 0 }
 
-  $feed = Get-Content -LiteralPath $configPath -Encoding UTF8 |
+  $feeds = @(Get-Content -LiteralPath $configPath -Encoding UTF8 |
     Where-Object { $_.Trim() -ne '' -and -not $_.Trim().StartsWith('#') } |
-    Select-Object -First 1
-  if (-not $feed) { Write-Log 'update feed not configured, skip'; exit 0 }
-  $feed = $feed.Trim()
+    ForEach-Object { $_.Trim() })
+  if ($feeds.Count -eq 0) { Write-Log 'update feed not configured, skip'; exit 0 }
 
   $versionFile = Join-Path $root 'version.txt'
   $current = if (Test-Path -LiteralPath $versionFile) { (Get-Content -LiteralPath $versionFile -Raw).Trim() } else { '0.0.0' }
-  Write-Log "check update: current=$current feed=$feed"
+  Write-Log "check update: current=$current feeds=$($feeds.Count)"
 
-  $manifest = $null
-  if ($feed -match '^https?://') {
-    $manifest = Invoke-RestMethod -Uri $feed -TimeoutSec 10
-  } elseif (Test-Path -LiteralPath $feed) {
-    $manifest = Get-Content -LiteralPath $feed -Raw -Encoding UTF8 | ConvertFrom-Json
-  } else {
-    Write-Log "feed not reachable: $feed"; exit 0
-  }
-
-  $latest = [string]$manifest.version
-  if ([string]::IsNullOrWhiteSpace($latest)) { Write-Log 'manifest has no version, skip'; exit 0 }
-  if ([version]$latest -le [version]$current) { Write-Log "already up to date ($current)"; exit 0 }
-  Write-Log "new version available: $latest (current $current)"
-
-  $zip = Join-Path $env:TEMP ("cet-words-app-" + $latest + ".zip")
-  $url = [string]$manifest.url
-  if ($url -match '^https?://') {
-    Invoke-WebRequest -Uri $url -OutFile $zip -TimeoutSec 180
-  } elseif (Test-Path -LiteralPath $url) {
-    Copy-Item -LiteralPath $url -Destination $zip -Force
-  } else {
-    Write-Log "payload not reachable: $url"; exit 0
-  }
-
-  if ($manifest.sha256) {
-    # 用 .NET 直接算 SHA256（不依赖 PowerShell 模块，避免某些精简系统缺少 Get-FileHash）
-    $sha = [System.Security.Cryptography.SHA256]::Create()
-    $stream = [System.IO.File]::OpenRead($zip)
-    $hash = ($sha.ComputeHash($stream) | ForEach-Object { $_.ToString('x2') }) -join ''
-    $stream.Close()
-    $sha.Dispose()
-    $hash = $hash.ToUpper()
-    if ($hash -ne ([string]$manifest.sha256).ToUpper()) {
-      Write-Log "sha256 mismatch, abort (got $hash)"; exit 1
+  $candidates = @()
+  for ($i = 0; $i -lt $feeds.Count; $i++) {
+    $feed = $feeds[$i]
+    try {
+      if ($feed -match '^https?://') {
+        $manifest = Invoke-RestMethod -Uri $feed -TimeoutSec 10
+      } else {
+        $manifest = Get-Content -LiteralPath $feed -Raw -Encoding UTF8 | ConvertFrom-Json
+      }
+      $latest = [version][string]$manifest.version
+      if ($latest -gt [version]$current) {
+        $candidates += [pscustomobject]@{ feed = $feed; manifest = $manifest; version = $latest; order = $i }
+      }
+    } catch {
+      Write-Log "feed failed: $feed ($($_.Exception.Message))"
     }
   }
+  if ($candidates.Count -eq 0) { Write-Log "already up to date or feeds unavailable ($current)"; exit 0 }
+
+  $zip = $null
+  $latest = $null
+  foreach ($candidate in @($candidates | Sort-Object @{ Expression = 'version'; Descending = $true }, order)) {
+    $url = [string]$candidate.manifest.url
+    $download = Join-Path $env:TEMP ("cet-words-app-" + $candidate.version + ".zip")
+    try {
+      if ($url -match '^https?://') {
+        Invoke-WebRequest -Uri $url -OutFile $download -TimeoutSec 180
+      } else {
+        Copy-Item -LiteralPath $url -Destination $download -Force
+      }
+      if (-not $candidate.manifest.sha256) { throw 'manifest has no sha256' }
+      $hash = (Get-FileHash -LiteralPath $download -Algorithm SHA256).Hash.ToUpper()
+      if ($hash -ne ([string]$candidate.manifest.sha256).ToUpper()) { throw "sha256 mismatch (got $hash)" }
+      $zip = $download
+      $latest = [string]$candidate.version
+      Write-Log "new version available: $latest from $($candidate.feed)"
+      break
+    } catch {
+      Write-Log "download failed: $url ($($_.Exception.Message))"
+      Remove-Item -LiteralPath $download -Force -ErrorAction SilentlyContinue
+    }
+  }
+  if (-not $zip) { Write-Log 'all update sources failed, keep current version'; exit 0 }
 
   $stage = Join-Path $root 'app.new'
   $backup = Join-Path $root 'app.old'
