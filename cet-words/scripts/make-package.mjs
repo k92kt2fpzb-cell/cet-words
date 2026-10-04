@@ -84,6 +84,13 @@ copyDir(standalone, payloadApp);
 copyDir(path.join(root, ".next/static"), path.join(payloadApp, ".next/static"));
 copyDir(path.join(root, "public"), path.join(payloadApp, "public"));
 
+// 许可证与第三方声明必须随程序一起分发（词库数据是 BSD 3-Clause）：
+// 放进 app/public 后，安装包与更新负载都会带上它们，应用内也能直接访问
+for (const f of ["LICENSE", "THIRD-PARTY-NOTICES.md"]) {
+  fs.copyFileSync(path.join(root, f), path.join(payloadApp, "public", f));
+}
+copyDir(path.join(root, "licenses"), path.join(payloadApp, "public", "licenses"));
+
 // ---------- 2. 自动更新包 ----------
 console.log("→ 生成更新包（app 负载 zip）…");
 const updateDir = path.join(distDir, "update");
@@ -116,13 +123,11 @@ writeText(path.join(fullDir, "tools/update.ps1"), readText("tools/update.ps1"), 
 writeText(path.join(fullDir, "version.txt"), `${version}\n`);
 fs.copyFileSync(path.join(root, "cet-words.ico"), path.join(fullDir, "cet-words.ico"));
 
-// 许可证与第三方声明：源码包和安装包都必须带上（词库数据是 BSD 3-Clause）
+// 安装包根目录再放一份，方便直接查看
 for (const f of ["LICENSE", "THIRD-PARTY-NOTICES.md"]) {
   fs.copyFileSync(path.join(root, f), path.join(fullDir, f));
-  fs.copyFileSync(path.join(root, f), path.join(payloadApp, "public", f));
 }
 copyDir(path.join(root, "licenses"), path.join(fullDir, "licenses"));
-copyDir(path.join(root, "licenses"), path.join(payloadApp, "public", "licenses"));
 
 const fullZip = path.join(distDir, `${fullName}.zip`);
 zipDirContents(fullDir, fullZip);
