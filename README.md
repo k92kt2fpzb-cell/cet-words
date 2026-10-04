@@ -4,7 +4,7 @@
 
 ## Windows 安装
 
-在 [Releases](https://github.com/k92kt2fpzb-cell/cet-words/releases/latest) 下载 `CET-Words-1.0.0-win64.zip`，解压后阅读其中的 `使用说明.txt`，双击 `安装到桌面.cmd`。之后可从桌面快捷方式打开。
+在 [Releases](https://github.com/k92kt2fpzb-cell/cet-words/releases/latest) 下载最新的 `CET-Words-*-win64.zip`，解压后阅读其中的 `使用说明.txt`，双击 `安装到桌面.cmd`。之后可从桌面快捷方式打开。
 
 安装包内置运行环境。启动时从 [更新源](https://k92kt2fpzb-cell.github.io/cet-words/update.json) 检查新版本；学习记录保存在各自设备的浏览器数据中。
 

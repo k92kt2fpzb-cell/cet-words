@@ -54,8 +54,11 @@ function writeText(dest, text, { bom = false } = {}) {
 function zipDirContents(srcDir, zipPath) {
   fs.mkdirSync(path.dirname(zipPath), { recursive: true });
   if (fs.existsSync(zipPath)) fs.rmSync(zipPath);
-  // 用 Windows 自带的 tar.exe（bsdtar）：比 Compress-Archive 稳定、也更快
-  sh("tar.exe", ["-a", "-c", "-f", zipPath, "-C", srcDir, "."]);
+  // ZipFile 使用标准相对路径和 UTF-8 文件名；tar.exe 生成的 ./ 前缀会让资源管理器把 ZIP 显示为空。
+  sh("powershell.exe", [
+    "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File",
+    path.join(__dirname, "zip-directory.ps1"), "-Source", srcDir, "-Destination", zipPath,
+  ]);
 }
 
 function readText(rel) {
@@ -139,7 +142,7 @@ const manifest = {
   url: `https://把这里换成你的直链地址/cet-words/CET-Words-app-${version}.zip`,
   sha256,
   size: updateSize,
-  notes: "把这一行改成这次的更新说明（给朋友看的，可留空）",
+  notes: "修复 Windows 资源管理器中压缩包显示为空的问题。",
 };
 writeText(path.join(updateDir, "update.json"), JSON.stringify(manifest, null, 2) + "\n");
 
@@ -159,10 +162,7 @@ const publishGuide = `发布新版本给朋友（以后不用再发安装包）
    注意 sha256 与 size 由脚本自动生成，不要手改，否则客户端会校验失败。
 
 4. 第一次分享：把 dist/${fullName}.zip 发给朋友。
-   对方解压后双击「安装到桌面.cmd」完成安装，然后把程序目录里 update-config.txt
-   的第一个有效行改成你的 update.json 地址，例如：
-     https://example.com/cet-words/update.json
-   （这一步做一次就行，之后他每次打开都会自动检查更新）
+   对方解压后双击「安装到桌面.cmd」完成安装。更新地址已写入安装包。
 
 5. 以后发布新版本：只重复第 1-3 步。朋友下次打开软件时自动更新，不需要再收安装包。
 
