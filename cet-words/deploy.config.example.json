@@ -1,0 +1,8 @@
+{
+  "host": "139.196.198.4",
+  "user": "root",
+  "port": 22,
+  "keyPath": "C:/Users/Lenovo/.ssh/cet_words_deploy",
+  "remoteDir": "/opt/voiceroom/public/cet-words",
+  "publicBaseUrl": "https://139.196.198.4/cet-words"
+}

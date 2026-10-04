@@ -9,4 +9,4 @@
 #   2) 局域网共享：\\电脑名\共享目录\cet-words\update.json
 #
 # 修改后保存即可，下面第一个非注释行就是实际地址：
-
+https://139.196.198.4/cet-words/update.json

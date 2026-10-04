@@ -7,3 +7,5 @@ out/
 data-src/
 # 分发包产物
 dist/
+# 部署配置（含服务器信息，不入库）
+deploy.config.json
