@@ -5,3 +5,5 @@ out/
 .env*.local
 # 词库原始数据（14MB，可由 README 中的来源重新获取）
 data-src/
+# 分发包产物
+dist/

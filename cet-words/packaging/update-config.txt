@@ -1,0 +1,12 @@
+# CET Words 自动更新源
+#
+# 在下面填写 update.json 的完整地址（由分享者发布）。填写后软件每次启动会自动检查更新；
+# 留空则跳过更新检查，不影响使用。
+#
+# 支持两种形式：
+#   1) 网络地址：https://example.com/cet-words/update.json
+#      （GitHub Release 附件、对象存储、自己的服务器等任何可直接访问的地址）
+#   2) 局域网共享：\\电脑名\共享目录\cet-words\update.json
+#
+# 修改后保存即可，下面第一个非注释行就是实际地址：
+

@@ -48,6 +48,8 @@ export default function SettingsPage() {
   const [keyDraft, setKeyDraft] = useState("");
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<{ ok: boolean; message: string; reply?: string } | null>(null);
+  const [checkingUpdate, setCheckingUpdate] = useState(false);
+  const [updateMessage, setUpdateMessage] = useState<string | null>(null);
 
   useEffect(() => {
     if (settings) setKeyDraft(settings.aiKey ?? "");
@@ -417,6 +419,30 @@ export default function SettingsPage() {
           <li>答“不认识 / 模糊”的单词会在今天的队列里反复出现，直到你选“认识”。</li>
           <li>词库共 {cet4Count} 个四级词、{cet6Count} 个六级词，重复词自动合并为 CET-4 + CET-6 双标签。</li>
         </ul>
+        <div className="mt-3 flex flex-wrap items-center gap-3">
+          <button
+            className={btn.ghost}
+            disabled={checkingUpdate}
+            onClick={async () => {
+              setCheckingUpdate(true);
+              setUpdateMessage(null);
+              try {
+                const res = await fetch("/api/update", { method: "POST" });
+                const data = (await res.json()) as { message?: string };
+                setUpdateMessage(data.message || "检查完成");
+              } catch (err) {
+                setUpdateMessage(`检查失败：${(err as Error).message}`);
+              }
+              setCheckingUpdate(false);
+            }}
+          >
+            {checkingUpdate ? "检查中…" : "检查更新"}
+          </button>
+          {updateMessage ? <span className="text-xs text-slate-600">{updateMessage}</span> : null}
+        </div>
+        <p className="mt-2 text-xs text-slate-400">
+          安装版会在每次启动时自动检查更新（更新源由分享者在 update-config.txt 里配置）；开发环境不联网检查。
+        </p>
       </Card>
     </div>
   );
