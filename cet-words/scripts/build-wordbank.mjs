@@ -55,24 +55,27 @@ function parseSenses(c) {
 
 function parseExamSentences(c) {
   const list = c?.realExamSentence?.sentences;
-  if (!Array.isArray(list)) return { count: 0, byType: {}, years: [], sentences: [] };
+  if (!Array.isArray(list)) return { count: 0, byType: {}, years: [], samples: {} };
   const byType = {};
   const years = new Set();
-  const sentences = [];
+  // 按题型各留最多 2 条例句：写作题 / 文本题（翻译）的句子也要能在背单词时看到
+  const samples = {};
   for (const s of list) {
     const info = s.sourceInfo || {};
     const type = clean(info.type) || "其他";
     byType[type] = (byType[type] || 0) + 1;
     if (info.year) years.add(clean(info.year));
-    if (sentences.length < 3) {
-      sentences.push({ en: clean(s.sContent), type, year: clean(info.year || "") });
+    const en = clean(s.sContent);
+    const bucket = (samples[type] = samples[type] || []);
+    if (en && bucket.length < 2 && !bucket.some((x) => x.en === en)) {
+      bucket.push({ en, year: clean(info.year || "") });
     }
   }
   return {
     count: list.length,
     byType,
     years: [...years].sort().reverse().slice(0, 8),
-    sentences,
+    samples,
   };
 }
 

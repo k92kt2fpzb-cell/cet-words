@@ -26,6 +26,10 @@ export function WordCard({ word, reveal }: { word: Word; reveal: 0 | 1 | 2 }) {
   const freq = tierStars(word.tier ?? 6);
   const uk = word.uk ? `/${word.uk}/` : "";
   const us = word.us ? `/${word.us}/` : "";
+  const samplesOf = (type: string) => (word.exam.samples?.[type] ?? []).map((s) => ({ ...s, type }));
+  const readingSamples = [...samplesOf("阅读理解"), ...samplesOf("听力题")].slice(0, 2);
+  const writingSamples = samplesOf("写作题");
+  const translationSamples = samplesOf("文本题");
 
   return (
     <div className="card fade-in p-6">
@@ -142,7 +146,7 @@ export function WordCard({ word, reveal }: { word: Word; reveal: 0 | 1 | 2 }) {
             </Block>
           ) : null}
 
-          {word.exam.sentences.length > 0 ? (
+          {readingSamples.length > 0 || word.exam.count > 0 ? (
             <Block title="真题语境">
               <div className="mb-2 flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-slate-500">
                 {Object.entries(word.exam.byType)
@@ -155,11 +159,32 @@ export function WordCard({ word, reveal }: { word: Word; reveal: 0 | 1 | 2 }) {
                 {word.exam.years.length > 0 ? <span>出现年份 {word.exam.years.slice(0, 4).join(" / ")}</span> : null}
               </div>
               <div className="space-y-2">
-                {word.exam.sentences.slice(0, 2).map((s, i) => (
+                {readingSamples.map((s, i) => (
                   <div key={i} className="rounded-xl border border-emerald-100 bg-emerald-50/60 p-3">
                     <div className="text-sm text-slate-800">{s.en}</div>
-                    <div className="mt-1 text-[11px] text-emerald-700">
-                      {[s.year, s.type].filter(Boolean).join(" · ")}
+                    <div className="mt-1 text-[11px] text-emerald-700">{[s.year, s.type].filter(Boolean).join(" · ")}</div>
+                  </div>
+                ))}
+              </div>
+            </Block>
+          ) : null}
+
+          {writingSamples.length > 0 || translationSamples.length > 0 ? (
+            <Block title="写作 / 翻译 真题例句">
+              <div className="space-y-2">
+                {writingSamples.map((s, i) => (
+                  <div key={`w${i}`} className="rounded-xl border border-indigo-100 bg-indigo-50/60 p-3">
+                    <div className="text-sm text-slate-800">{s.en}</div>
+                    <div className="mt-1 text-[11px] text-indigo-700">
+                      {["写作题", s.year].filter(Boolean).join(" · ")}
+                    </div>
+                  </div>
+                ))}
+                {translationSamples.map((s, i) => (
+                  <div key={`t${i}`} className="rounded-xl border border-amber-100 bg-amber-50/60 p-3">
+                    <div className="text-sm text-slate-800">{s.en}</div>
+                    <div className="mt-1 text-[11px] text-amber-700">
+                      {["翻译 · 文本题", s.year].filter(Boolean).join(" · ")}
                     </div>
                   </div>
                 ))}

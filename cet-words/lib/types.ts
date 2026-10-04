@@ -33,9 +33,8 @@ export interface RootGroup {
   words: { hwd: string; tran: string }[];
 }
 
-export interface ExamSentence {
+export interface ExamSample {
   en: string;
-  type: string;
   year: string;
 }
 
@@ -43,7 +42,8 @@ export interface ExamInfo {
   count: number;
   byType: Record<string, number>;
   years: string[];
-  sentences: ExamSentence[];
+  /** 各题型各留最多 2 条真题例句（含写作题、文本题/翻译） */
+  samples: Record<string, ExamSample[]>;
 }
 
 /** 词库中的单词（public/data/wordbank.json -> IndexedDB words 表） */
@@ -164,7 +164,8 @@ export interface Settings {
   examType: Level;
   examDate: string;
   dailyNew: number;
-  dailyMinutes: number;
+  /** 每日复习量上限，0 = 不限 */
+  dailyReview: number;
   weekendBoost: boolean;
   createdAt: number;
   /** DeepSeek（或兼容 OpenAI 协议的服务）配置 */

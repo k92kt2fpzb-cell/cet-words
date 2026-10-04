@@ -257,9 +257,29 @@ async function main() {
     await waitFor(async () => (await text()).includes("下一个单词"), "展开详细内容");
     const detailText = (await text()).replace(/\s+/g, " ");
     check("展开后有释义/例句/搭配/真题语境的完整内容", ["例句", "常见搭配", "真题语境", "同近义词"].every((k) => detailText.includes(k)));
+    check(
+      "单词卡里有写作 / 翻译 真题例句",
+      detailText.includes("写作 / 翻译 真题例句") && detailText.includes("翻译 · 文本题") && detailText.includes("写作题"),
+      detailText.match(/写作 \/ 翻译 真题例句[^同]*/)?.[0]?.slice(0, 60) ?? "",
+    );
     check("展开后没有 FSRS 评分按钮", !detailText.includes("Again") && !detailText.includes("很熟"));
     check("展开后出现 AI 助手区", detailText.includes("AI 助手"));
     await shot("03-learn-detail");
+
+    // 在 AI 提问框里打字不应该被全局快捷键抢走（否则空格/回车会直接翻卡）
+    check("点击 AI 助记（未配置 Key 时仅提示）", await clickText("button", "AI 助记"));
+    await sleep(900);
+    const wordBeforeTyping = await cdp.eval("document.querySelector('h3')?.textContent || ''");
+    const typed = await cdp.eval(
+      `(() => { const el = [...document.querySelectorAll("input")].find((i) => (i.placeholder || "").includes("提问")); if (!el) return false; el.focus(); el.value = "为什么"; el.dispatchEvent(new Event("input", { bubbles: true })); el.dispatchEvent(new KeyboardEvent("keydown", { key: " ", bubbles: true })); el.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })); return true; })()`,
+    );
+    await sleep(800);
+    const wordAfterTyping = await cdp.eval("document.querySelector('h3')?.textContent || ''");
+    check(
+      "在输入框里打字/回车不会翻卡",
+      typed === true && wordBeforeTyping === wordAfterTyping && (await text()).includes("下一个单词"),
+      `${wordBeforeTyping} -> ${wordAfterTyping}`,
+    );
 
     check("看完直接点下一个单词", await clickText("button", "下一个单词"));
     await waitFor(async () => (await text()).includes("你认识这个单词吗"), "进入第二张卡片");
@@ -373,23 +393,32 @@ async function main() {
     check("学习与复习分别计入今日数据", (dayStats?.newWords ?? 0) >= 3 && (dayStats?.reviews ?? 0) >= 1, JSON.stringify(dayStats));
     await shot("08-review-done");
 
-    // ---------- 5. 时间预算真正参与排课 ----------
+    // ---------- 5. 每日新词量 / 每日复习量都由用户选择；用时只做参考 ----------
+    const forcedForCap = await forceAllDue();
+    check("构造多张到期卡片", forcedForCap >= 2, `rows=${forcedForCap}`);
     check(
-      "切回自定义模式并把每日学习时间设为 10 分钟",
-      (await setSettings({ newPlanMode: "custom", dailyNew: 30, studyScope: "all", dailyMinutes: 10 })) === true,
+      "设置：新词 10 个 / 复习上限 1 张 / 六级含四级",
+      (await setSettings({
+        newPlanMode: "custom",
+        dailyNew: 10,
+        dailyReview: 1,
+        studyScope: "all",
+        examType: "CET4",
+        cet6IncludeBase: true,
+      })) === true,
     );
     await goto("/");
-    await waitFor(async () => (await text()).includes("时间预算"), "今日页时间预算");
-    const budgetText = (await text()).replace(/\s+/g, " ");
-    check("今日页显示时间预算明细", /时间预算：复习约 \d+ 分钟 \+ 新词约 \d+ 分钟 = \d+ \/ 10 分钟/.test(budgetText), budgetText.match(/时间预算[^（]*/)?.[0] ?? "");
-    const cappedNum = Number((budgetText.match(/新词从 (\d+) 调整为 (\d+)/) || [])[2] ?? 0);
-    check(
-      "时间预算把每日新词从 30 压到预算以内",
-      /受时间预算限制/.test(budgetText) && cappedNum >= 5 && cappedNum < 30,
-      budgetText.match(/受时间预算限制[^）]*/)?.[0] ?? budgetText.slice(0, 80),
-    );
-    check("没有到期卡片时安排巩固复习（保证每天都有复习）", /含巩固 \d+/.test(budgetText), budgetText.match(/待复习[^\d]*\d+/)?.[0] ?? "");
-    await shot("09-time-budget");
+    await waitFor(async () => (await text()).includes("今日任务"), "今日页（限量设置）");
+    const limitText = (await text()).replace(/\s+/g, " ");
+    check("新词量按用户设置 = 10", /今日新词 10 /.test(limitText), limitText.match(/今日新词 \d+/)?.[0] ?? "");
+    check("显示参考用时（不参与排课）", /预计用时（仅参考）/.test(limitText), limitText.match(/预计用时[^（]*/)?.[0] ?? "");
+    check("复习量按用户设置限制并有顺延提示", /另有 \d+ 张顺延到明天/.test(limitText), limitText.match(/另有[^·]*/)?.[0] ?? "");
+    await shot("09-daily-limits");
+    await goto("/review");
+    await waitFor(async () => (await text()).includes("你认识这个单词吗"), "限量复习队列");
+    const queueText = (await text()).replace(/\s+/g, " ");
+    check("复习队列按上限只安排 1 张", /1 \/ 1/.test(queueText), queueText.match(/\d+ \/ \d+/)?.[0] ?? "");
+    check("恢复每日复习量不限", (await setSettings({ dailyReview: 0 })) === true);
 
     // ---------- 6. 单词本 ----------
     await goto("/vocabulary");

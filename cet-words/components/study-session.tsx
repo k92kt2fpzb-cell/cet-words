@@ -170,6 +170,11 @@ export function StudySession({ mode }: { mode: "learn" | "review" }) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (!current || busy || batch) return;
+      // 正在输入框 / 文本域里打字时，不要抢按键（否则空格、回车会直接翻卡）
+      const el = e.target as HTMLElement | null;
+      if (el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.tagName === "SELECT" || el.isContentEditable)) {
+        return;
+      }
       if (phase === "recall") {
         const hit = ["1", "2", "3"].indexOf(e.key);
         if (hit >= 0) {

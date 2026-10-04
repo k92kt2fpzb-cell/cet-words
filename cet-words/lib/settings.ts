@@ -6,7 +6,7 @@ export const DEFAULT_SETTINGS: Settings = {
   examType: "CET4",
   examDate: nextCetDate(),
   dailyNew: 30,
-  dailyMinutes: 30,
+  dailyReview: 0,
   weekendBoost: false,
   createdAt: 0,
   aiKey: "",

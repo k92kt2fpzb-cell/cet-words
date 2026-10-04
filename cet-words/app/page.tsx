@@ -96,9 +96,7 @@ export default function TodayPage() {
               <div className="text-xs text-slate-500">
                 待复习{plan.counts.extra > 0 ? `（含巩固 ${plan.counts.extra}）` : ""}
               </div>
-              <div className="text-xl font-semibold tabular-nums text-slate-900">
-                {plan.counts.due + plan.counts.extra}
-              </div>
+                <div className="text-xl font-semibold tabular-nums text-slate-900">{plan.reviewTarget}</div>
             </div>
           </Link>
           <Link href="/learn" className="flex items-center gap-3 rounded-xl border border-slate-200 p-3 transition hover:border-indigo-200 hover:bg-indigo-50/40">
@@ -132,15 +130,15 @@ export default function TodayPage() {
             <span>学习时长 {formatDuration(plan.todayDurationMs)}</span>
           </div>
           <div className="mt-1.5 text-xs text-slate-500">
-            时间预算：复习约 {plan.timeBudget.reviewMinutes} 分钟 + 新词约 {plan.timeBudget.newMinutes} 分钟 ={" "}
-            {plan.timeBudget.usedMinutes} / {plan.timeBudget.minutes} 分钟
-            {plan.timeBudget.capped ? (
+            预计用时（仅参考）：约 {plan.timeEstimate.totalMinutes} 分钟
+            <span className="text-slate-400">
+              {" "}
+              （新词 {plan.newTarget} 个 × 40 秒 + 复习 {plan.reviewTarget} 张 × 12 秒）
+            </span>
+            {plan.reviewOverflow > 0 ? (
               <span className="ml-1 text-amber-600">
-                （受时间预算限制，新词从 {plan.rawNewTarget} 调整为 {plan.newTarget}）
+                · 复习量已按你的设置限制，另有 {plan.reviewOverflow} 张顺延到明天
               </span>
-            ) : null}
-            {plan.timeBudget.over ? (
-              <span className="ml-1 text-rose-600">（复习已占满今日预算，先清复习债务）</span>
             ) : null}
           </div>
         </div>
@@ -211,7 +209,6 @@ export default function TodayPage() {
                 ? `倒推需要 ${plan.perDayNeeded} 个 / 天 · 留 ${settings?.examBufferDays ?? 14} 天复习`
                 : `基础 ${plan.baseTarget} 个 / 天`}
               {plan.minNewApplied ? " · 已补足到至少 5 个" : ""}
-              {plan.timeBudget.capped ? ` · 预算上限 ${plan.timeBudget.newCap} 个` : ""}
             </div>
           </div>
         </div>

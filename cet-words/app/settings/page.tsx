@@ -230,9 +230,10 @@ export default function SettingsPage() {
 
         <div className="mt-4 rounded-xl bg-slate-50 p-3 text-xs text-slate-500">
           今日实际安排：新词 <span className="font-semibold text-slate-700">{effectiveDaily}</span> 个 · 复习{" "}
-          <span className="font-semibold text-slate-700">{(plan?.counts.due ?? 0) + (plan?.counts.extra ?? 0)}</span> 个
+          <span className="font-semibold text-slate-700">{plan?.reviewTarget ?? 0}</span> 个
           {plan?.minNewApplied ? "（为保证每天都有新词，已补足到至少 5 个）" : ""}
-          ；每天都会同时安排新词和复习。
+          {(plan?.reviewOverflow ?? 0) > 0 ? `（另有 ${plan?.reviewOverflow} 张顺延到明天）` : ""}；预计用时约{" "}
+          {plan?.timeEstimate.totalMinutes ?? 0} 分钟（仅参考）。每天都会同时安排新词和复习。
         </div>
       </Card>
 
@@ -241,19 +242,21 @@ export default function SettingsPage() {
         <div className="mt-4 space-y-5">
           <div>
             <div className="flex items-center justify-between text-sm">
-              <span className="text-slate-700">每日学习时间</span>
-              <span className="font-semibold tabular-nums text-indigo-600">{settings.dailyMinutes} 分钟</span>
+              <span className="text-slate-700">每日复习量上限</span>
+              <span className="font-semibold tabular-nums text-indigo-600">
+                {settings.dailyReview === 0 ? "不限" : `${settings.dailyReview} 张`}
+              </span>
             </div>
-            <input
-              type="range"
-              min={10}
-              max={120}
-              step={5}
-              value={settings.dailyMinutes}
-              onChange={(e) => update({ dailyMinutes: Number(e.target.value) })}
-              className="mt-2 w-full accent-indigo-600"
-            />
-            <p className="mt-1 text-xs text-slate-400">排课时先扣掉复习时间，剩余时间才安排新词。</p>
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              {[0, 20, 40, 60, 100].map((n) => (
+                <SegButton key={n} active={settings.dailyReview === n} onClick={() => update({ dailyReview: n })}>
+                  {n === 0 ? "不限" : `${n} 张`}
+                </SegButton>
+              ))}
+            </div>
+            <p className="mt-1 text-xs text-slate-400">
+              超过上限的到期卡片会顺延到明天（复习优先，不会丢）。设置为“不限”时会尽量当天清完。
+            </p>
           </div>
 
           <div>

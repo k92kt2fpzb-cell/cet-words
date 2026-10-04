@@ -21,14 +21,11 @@ export interface PlanCounts {
   exam: number;
 }
 
-export interface TimeBudget {
-  minutes: number;
+/** 仅供参考的用时估算：每张新词约 40 秒，每张复习约 12 秒；不参与排课 */
+export interface TimeEstimate {
   reviewMinutes: number;
   newMinutes: number;
-  usedMinutes: number;
-  newCap: number;
-  capped: boolean;
-  over: boolean;
+  totalMinutes: number;
 }
 
 export interface TodayPlan {
@@ -60,7 +57,9 @@ export interface TodayPlan {
   todayDurationMs: number;
   todayTotal: number;
   todayDone: number;
-  timeBudget: TimeBudget;
+  reviewTarget: number;
+  reviewOverflow: number;
+  timeEstimate: TimeEstimate;
 }
 
 const EXTRA_REVIEW_MAX = 8;
@@ -124,30 +123,27 @@ export async function buildTodayPlan(s: Settings): Promise<TodayPlan> {
     exam: dueRows.filter((p) => p.examCount > 0).length,
   };
 
-  const reviewCount = counts.due + counts.extra;
-  const reviewMinutes = (reviewCount * SECONDS_PER_REVIEW) / 60;
-  const newCap = Math.floor((Math.max(0, s.dailyMinutes - reviewMinutes) * 60) / SECONDS_PER_NEW_WORD);
+  const availableReviews = counts.due + counts.extra;
+  // 每日复习量由用户决定；0 = 不限
+  const reviewTarget = s.dailyReview > 0 ? Math.min(availableReviews, s.dailyReview) : availableReviews;
+  const reviewOverflow = availableReviews - reviewTarget;
 
-  // 每天至少 5 个新词（词单还没学完、且时间预算允许时）
+  // 每天至少 5 个新词（词单还没学完时）
   const minNew = Math.min(5, remaining);
   const rawNewTarget = Math.min(planned, remaining);
-  const newTarget = Math.max(0, Math.min(Math.max(planned, minNew), newCap, remaining));
+  const newTarget = Math.max(0, Math.min(Math.max(planned, minNew), remaining));
   const minNewApplied = newTarget > rawNewTarget;
   const catchUp = Math.max(0, newTarget - Math.min(s.dailyNew, newTarget));
   const firstRoundDays = newTarget > 0 ? Math.ceil(remaining / newTarget) : 0;
 
-  const timeBudget: TimeBudget = {
-    minutes: s.dailyMinutes,
-    reviewMinutes: Math.round(reviewMinutes),
+  const timeEstimate: TimeEstimate = {
+    reviewMinutes: Math.round((reviewTarget * SECONDS_PER_REVIEW) / 60),
     newMinutes: Math.round((newTarget * SECONDS_PER_NEW_WORD) / 60),
-    usedMinutes: Math.round(reviewMinutes + (newTarget * SECONDS_PER_NEW_WORD) / 60),
-    newCap,
-    capped: newTarget < Math.max(planned, minNew),
-    over: reviewMinutes >= s.dailyMinutes,
+    totalMinutes: Math.round((reviewTarget * SECONDS_PER_REVIEW + newTarget * SECONDS_PER_NEW_WORD) / 60),
   };
 
   const day = (await db.days.get(todayKey())) ?? { date: todayKey(), newWords: 0, reviews: 0, durationMs: 0 };
-  const todayTotal = reviewCount + newTarget;
+  const todayTotal = reviewTarget + newTarget;
   const todayDone = Math.min(todayTotal, day.newWords + day.reviews);
 
   return {
@@ -179,7 +175,9 @@ export async function buildTodayPlan(s: Settings): Promise<TodayPlan> {
     todayDurationMs: day.durationMs,
     todayTotal,
     todayDone,
-    timeBudget,
+    reviewTarget,
+    reviewOverflow,
+    timeEstimate,
   };
 }
 
@@ -301,12 +299,15 @@ export async function buildReviewQueue(s: Settings): Promise<ReviewQueueResult> 
   });
   items.sort((a, b) => b.score - a.score);
 
+  // 每日复习量由用户设置（0 = 不限，仍保留 300 的安全上限）
+  const cap = s.dailyReview > 0 ? s.dailyReview : 300;
   if (!sprint) {
-    return { cards: items.slice(0, 300).map((it) => it.card), sprint: false, capacity: items.length, mix: [] };
+    const limited = items.slice(0, cap).map((it) => it.card);
+    return { cards: limited, sprint: false, capacity: limited.length, mix: [] };
   }
 
-  // 冲刺阶段按配额组卷，容量按每日学习时间折算（每分钟约 5 张复习卡）
-  const capacity = Math.min(items.length, Math.max(20, Math.round(s.dailyMinutes * 5)));
+  // 冲刺阶段在此基础上按配额组卷
+  const capacity = Math.min(items.length, cap);
   const targets = SPRINT_MIX.map((m) => ({
     key: m.key as string,
     label: m.label,
