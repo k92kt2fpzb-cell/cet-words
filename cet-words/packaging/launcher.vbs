@@ -3,7 +3,7 @@
 ' Need a different port? Edit the line:  port = 3100
 Option Explicit
 
-Dim shell, fso, root, port, url, appDir, nodeExe, serverJs, logFile, cmd, i, browser
+Dim shell, fso, root, port, url, appDir, nodeExe, serverJs, logFile, cmd, i, browser, noBrowser
 
 Set shell = CreateObject("WScript.Shell")
 Set fso = CreateObject("Scripting.FileSystemObject")
@@ -49,8 +49,12 @@ If Not PortListening(port) Then
   WScript.Quit 1
 End If
 
+noBrowser = False
+If WScript.Arguments.Unnamed.Count > 0 Then
+  noBrowser = (LCase(WScript.Arguments.Unnamed(0)) = "nobrowser")
+End If
 browser = FindBrowser(fso)
-If WScript.Arguments.Unnamed.Count > 0 And LCase(WScript.Arguments.Unnamed(0)) = "nobrowser" Then
+If noBrowser Then
   ' test mode: start the server only, do not open the window
   WScript.Quit 0
 ElseIf browser = "" Then

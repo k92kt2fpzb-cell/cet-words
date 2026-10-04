@@ -1,6 +1,6 @@
 {
   "name": "cet-words",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "private": true,
   "description": "CET Words - 四六级智能词汇学习与记忆管理系统",
   "scripts": {
