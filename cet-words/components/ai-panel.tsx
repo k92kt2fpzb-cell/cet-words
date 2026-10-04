@@ -52,7 +52,15 @@ function RichText({ text }: { text: string }) {
   );
 }
 
-export function AiPanel({ word, defaultOpen = false }: { word: Word; defaultOpen?: boolean }) {
+export function AiPanel({
+  word,
+  defaultOpen = false,
+  autoRun = false,
+}: {
+  word: Word;
+  defaultOpen?: boolean;
+  autoRun?: boolean;
+}) {
   const { settings } = useSettings();
   const [open, setOpen] = useState(defaultOpen);
   const [task, setTask] = useState<AiTask>("mnemonic");
@@ -61,17 +69,8 @@ export function AiPanel({ word, defaultOpen = false }: { word: Word; defaultOpen
   const [error, setError] = useState<string | null>(null);
   const [question, setQuestion] = useState("");
   const [cached, setCached] = useState(false);
-  const [serverKey, setServerKey] = useState(false);
-
   const model = settings?.aiModel || "deepseek-chat";
-  const hasKey = Boolean(settings?.aiKey) || serverKey;
-
-  useEffect(() => {
-    fetch("/api/ai")
-      .then((r) => r.json())
-      .then((d: { hasServerKey?: boolean }) => setServerKey(Boolean(d.hasServerKey)))
-      .catch(() => setServerKey(false));
-  }, []);
+  const hasKey = Boolean(settings?.aiKey);
 
   useEffect(() => {
     setText("");
@@ -79,6 +78,15 @@ export function AiPanel({ word, defaultOpen = false }: { word: Word; defaultOpen
     setQuestion("");
     setCached(false);
   }, [word.id]);
+
+  // 学新词时可选自动生成助记（需要用户自己配置 Key，默认关闭以免消耗额度）
+  const autoRef = useState({ done: false })[0];
+  useEffect(() => {
+    if (!autoRun || autoRef.done || !settings?.aiKey) return;
+    autoRef.done = true;
+    run("mnemonic");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoRun, settings?.aiKey, word.id]);
 
   async function run(next: AiTask, q?: string, force = false) {
     // 面板刚挂载时 settings 可能还在读库，这里兜底直接取一次，避免点击被静默吞掉

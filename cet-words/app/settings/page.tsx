@@ -3,34 +3,50 @@
 import { useLiveQuery } from "dexie-react-hooks";
 import { Download, RotateCcw } from "lucide-react";
 import { useEffect, useState } from "react";
-import { testAiConnection } from "@/lib/ai";
 import { Card, btn } from "@/components/ui";
+import { testAiConnection } from "@/lib/ai";
 import { daysUntil, nextCetDate, todayKey } from "@/lib/date";
 import { db } from "@/lib/db";
 import { useSettings } from "@/lib/hooks";
-import { resetAllProgress } from "@/lib/scheduler";
+import { buildTodayPlan, resetAllProgress } from "@/lib/scheduler";
 import { SECONDS_PER_NEW_WORD, SECONDS_PER_REVIEW } from "@/lib/settings";
 import type { Level } from "@/lib/types";
+import { STUDY_SCOPES, scopeCounts } from "@/lib/wordbank";
+
+function SegButton({
+  active,
+  onClick,
+  children,
+}: {
+  active: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className={`rounded-xl border px-3 py-2 text-xs font-medium transition ${
+        active ? "border-indigo-300 bg-indigo-50 text-indigo-700" : "border-slate-200 text-slate-600 hover:bg-slate-50"
+      }`}
+    >
+      {children}
+    </button>
+  );
+}
 
 export default function SettingsPage() {
   const { settings, update } = useSettings();
   const cet4Count = useLiveQuery(() => db.words.where("l4").equals(1).count(), [], 0);
   const cet6Count = useLiveQuery(() => db.words.where("l6").equals(1).count(), [], 0);
+  const scopeInfo = useLiveQuery(() => (settings ? scopeCounts(settings.examType) : null), [settings?.examType]);
+  const plan = useLiveQuery(() => (settings ? buildTodayPlan(settings) : null), [settings]);
   const [keyDraft, setKeyDraft] = useState("");
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<{ ok: boolean; message: string; reply?: string } | null>(null);
-  const [serverKey, setServerKey] = useState(false);
 
   useEffect(() => {
     if (settings) setKeyDraft(settings.aiKey ?? "");
   }, [settings?.aiKey]);
-
-  useEffect(() => {
-    fetch("/api/ai")
-      .then((r) => r.json())
-      .then((d: { hasServerKey?: boolean }) => setServerKey(Boolean(d.hasServerKey)))
-      .catch(() => setServerKey(false));
-  }, []);
 
   if (!settings) {
     return <div className="card p-8 text-center text-sm text-slate-500">读取设置中…</div>;
@@ -38,6 +54,7 @@ export default function SettingsPage() {
 
   const left = daysUntil(settings.examDate);
   const estimateMinutes = Math.round((settings.dailyNew * SECONDS_PER_NEW_WORD) / 60);
+  const effectiveDaily = plan?.newTarget ?? 0;
 
   async function exportData() {
     const payload = {
@@ -60,7 +77,7 @@ export default function SettingsPage() {
     <div className="space-y-4">
       <header>
         <h1 className="text-xl font-semibold text-slate-900">设置</h1>
-        <p className="text-sm text-slate-500">考试类型、考试日期与每日计划</p>
+        <p className="text-sm text-slate-500">词单、每日计划、AI 助手与数据管理</p>
       </header>
 
       <Card>
@@ -84,6 +101,39 @@ export default function SettingsPage() {
       </Card>
 
       <Card>
+        <h2 className="text-base font-semibold text-slate-900">词单（学习范围）</h2>
+        <p className="mt-1 text-xs text-slate-500">
+          先选词单，系统再按它安排每天的新词。随时可换，已学进度不会丢。
+        </p>
+        <div className="mt-3 space-y-2">
+          {STUDY_SCOPES.map((sc) => {
+            const count = scopeInfo?.[sc.key] ?? 0;
+            const active = settings.studyScope === sc.key;
+            return (
+              <button
+                key={sc.key}
+                onClick={() => update({ studyScope: sc.key })}
+                className={`w-full rounded-xl border p-3.5 text-left transition ${
+                  active ? "border-indigo-300 bg-indigo-50" : "border-slate-200 hover:bg-slate-50"
+                }`}
+              >
+                <div className="flex items-center justify-between">
+                  <span className="text-sm font-semibold text-slate-900">{sc.label}</span>
+                  <span className="text-xs tabular-nums text-slate-500">{count} 词</span>
+                </div>
+                <div className="mt-0.5 text-xs text-slate-500">{sc.desc}</div>
+              </button>
+            );
+          })}
+        </div>
+        {plan ? (
+          <p className="mt-2 text-xs text-slate-400">
+            当前词单「{plan.scopeName}」共 {plan.scopedTotal} 词，已学 {plan.learned}，剩余 {plan.remaining}。
+          </p>
+        ) : null}
+      </Card>
+
+      <Card>
         <h2 className="text-base font-semibold text-slate-900">考试日期</h2>
         <div className="mt-3 flex flex-wrap items-center gap-3">
           <input
@@ -97,15 +147,23 @@ export default function SettingsPage() {
             使用下一次四六级笔试日期
           </button>
         </div>
-        <p className="mt-2 text-xs text-slate-400">默认按每年 6 月 / 12 月第二个周六的四六级笔试日期计算。</p>
       </Card>
 
       <Card>
-        <h2 className="text-base font-semibold text-slate-900">每日学习计划</h2>
-        <div className="mt-4 space-y-5">
-          <div>
+        <h2 className="text-base font-semibold text-slate-900">新词数量</h2>
+        <div className="mt-3 grid grid-cols-2 gap-2">
+          <SegButton active={settings.newPlanMode === "custom"} onClick={() => update({ newPlanMode: "custom" })}>
+            自定义每天数量
+          </SegButton>
+          <SegButton active={settings.newPlanMode === "exam"} onClick={() => update({ newPlanMode: "exam" })}>
+            考前背完（自动倒推）
+          </SegButton>
+        </div>
+
+        {settings.newPlanMode === "custom" ? (
+          <div className="mt-4">
             <div className="flex items-center justify-between text-sm">
-              <span className="text-slate-700">每日计划新词数</span>
+              <span className="text-slate-700">每天新学</span>
               <span className="font-semibold tabular-nums text-indigo-600">{settings.dailyNew} 个</span>
             </div>
             <input
@@ -118,11 +176,45 @@ export default function SettingsPage() {
               className="mt-2 w-full accent-indigo-600"
             />
             <p className="mt-1 text-xs text-slate-400">
-              按每个新词约 {SECONDS_PER_NEW_WORD} 秒估算，当前目标约需 {estimateMinutes} 分钟；复习每张约{" "}
-              {SECONDS_PER_REVIEW} 秒。排课时会先扣掉复习用时，剩余时间才安排新词。
+              按每个新词约 {SECONDS_PER_NEW_WORD} 秒估算，约需 {estimateMinutes} 分钟（不含复习）；复习每张约{" "}
+              {SECONDS_PER_REVIEW} 秒。
             </p>
           </div>
+        ) : (
+          <div className="mt-4 space-y-3">
+            <div className="flex items-center justify-between text-sm">
+              <span className="text-slate-700">提前多少天完成第一轮</span>
+              <span className="font-semibold tabular-nums text-indigo-600">{settings.examBufferDays} 天</span>
+            </div>
+            <input
+              type="range"
+              min={0}
+              max={30}
+              step={1}
+              value={settings.examBufferDays}
+              onChange={(e) => update({ examBufferDays: Number(e.target.value) })}
+              className="w-full accent-indigo-600"
+            />
+            <div className="rounded-xl bg-indigo-50 p-3 text-xs text-indigo-900">
+              距离考试 <span className="font-semibold">{Math.max(0, left)}</span> 天，词单还剩{" "}
+              <span className="font-semibold">{plan?.remaining ?? 0}</span> 词 → 每天需要学{" "}
+              <span className="font-semibold">{plan?.perDayNeeded ?? 0}</span> 个新词
+              {settings.examBufferDays > 0 ? `（留 ${settings.examBufferDays} 天复习冲刺）` : ""}。
+            </div>
+          </div>
+        )}
 
+        <div className="mt-4 rounded-xl bg-slate-50 p-3 text-xs text-slate-500">
+          今日实际安排：新词 <span className="font-semibold text-slate-700">{effectiveDaily}</span> 个 · 复习{" "}
+          <span className="font-semibold text-slate-700">{(plan?.counts.due ?? 0) + (plan?.counts.extra ?? 0)}</span> 个
+          {plan?.minNewApplied ? "（为保证每天都有新词，已补足到至少 5 个）" : ""}
+          ；每天都会同时安排新词和复习。
+        </div>
+      </Card>
+
+      <Card>
+        <h2 className="text-base font-semibold text-slate-900">学习节奏</h2>
+        <div className="mt-4 space-y-5">
           <div>
             <div className="flex items-center justify-between text-sm">
               <span className="text-slate-700">每日学习时间</span>
@@ -137,7 +229,23 @@ export default function SettingsPage() {
               onChange={(e) => update({ dailyMinutes: Number(e.target.value) })}
               className="mt-2 w-full accent-indigo-600"
             />
-            <p className="mt-1 text-xs text-slate-400">系统会参考时间预算安排每日新词与复习量。</p>
+            <p className="mt-1 text-xs text-slate-400">排课时先扣掉复习时间，剩余时间才安排新词。</p>
+          </div>
+
+          <div>
+            <div className="flex items-center justify-between text-sm">
+              <span className="text-slate-700">每背完多少个词小结复习一次</span>
+              <span className="font-semibold tabular-nums text-indigo-600">
+                {settings.batchReview === 0 ? "关闭" : `${settings.batchReview} 个`}
+              </span>
+            </div>
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              {[0, 5, 8, 10, 15].map((n) => (
+                <SegButton key={n} active={settings.batchReview === n} onClick={() => update({ batchReview: n })}>
+                  {n === 0 ? "关闭" : `${n} 个`}
+                </SegButton>
+              ))}
+            </div>
           </div>
 
           <label className="flex items-center justify-between rounded-xl border border-slate-200 p-3.5">
@@ -155,7 +263,7 @@ export default function SettingsPage() {
 
           <div className="rounded-xl bg-slate-50 p-3.5 text-xs text-slate-500">
             距离考试 20 天以内会自动进入 <span className="font-medium text-rose-600">冲刺模式</span>
-            ：减少低频新词，优先复习高频词、错词、遗忘词、真题词与熟词僻义。当前状态：
+            ：按配额优先复习高频词、错词、遗忘词、真题词与熟词僻义。当前状态：
             <span className="font-medium text-rose-600">{left <= 20 && left >= 0 ? "已开启" : "未开启"}</span>
           </div>
         </div>
@@ -164,19 +272,19 @@ export default function SettingsPage() {
       <Card>
         <h2 className="text-base font-semibold text-slate-900">AI 助手（DeepSeek）</h2>
         <p className="mt-1 text-xs text-slate-500">
-          AI 助记 / AI 例句 / AI 解释通过本机 /api/ai 代理调用 DeepSeek，Key 只保存在这台电脑的浏览器里。
-          {serverKey ? " 同时检测到服务端已配置 DEEPSEEK_API_KEY。" : ""}
+          需要填写你自己的 DeepSeek API Key 才能使用 AI 助记 / AI 例句 / AI 解释；不填就不显示 AI 功能，其他功能不受影响。
+          Key 只保存在这台电脑的浏览器里，不会上传到别处。
         </p>
         <div className="mt-4 space-y-3">
           <label className="block">
-            <span className="text-xs text-slate-600">API Key</span>
+            <span className="text-xs text-slate-600">API Key（每个用户填自己的）</span>
             <input
               type="password"
               autoComplete="off"
               value={keyDraft}
               onChange={(e) => setKeyDraft(e.target.value)}
               onBlur={() => update({ aiKey: keyDraft.trim() })}
-              placeholder={serverKey ? "已配置服务端 Key，可留空" : "sk-..."}
+              placeholder="sk-..."
               className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-indigo-300"
             />
           </label>
@@ -211,6 +319,20 @@ export default function SettingsPage() {
               className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-indigo-300"
             />
           </label>
+          <label className="flex items-center justify-between rounded-xl border border-slate-200 p-3.5">
+            <span>
+              <span className="text-sm text-slate-800">学新词时自动生成 AI 助记</span>
+              <span className="mt-0.5 block text-xs text-slate-500">
+                开启后每个新词会自动请求一次助记（按量消耗你的 DeepSeek 额度），默认关闭
+              </span>
+            </span>
+            <input
+              type="checkbox"
+              checked={settings.autoAiMnemonic}
+              onChange={(e) => update({ autoAiMnemonic: e.target.checked })}
+              className="h-5 w-5 accent-indigo-600"
+            />
+          </label>
           <div className="flex flex-wrap items-center gap-3">
             <button
               className={btn.ghost}
@@ -233,8 +355,7 @@ export default function SettingsPage() {
             ) : null}
           </div>
           <p className="text-xs text-slate-400">
-            也可以不填 Key，改用项目根目录的 .env.local（DEEPSEEK_API_KEY=sk-xxx，服务端注入，重启服务生效）。
-            AI 结果会缓存在本地，同一个单词不会重复消耗额度。
+            AI 结果会按「单词 + 任务 + 模型」缓存在本地，同一个单词不会重复消耗额度。
           </p>
         </div>
       </Card>
@@ -265,11 +386,9 @@ export default function SettingsPage() {
         <h2 className="text-base font-semibold text-slate-900">关于 CET Words</h2>
         <ul className="mt-2 space-y-1 text-xs leading-relaxed text-slate-500">
           <li>词库：KyleBing/english-vocabulary 四六级词表（含音标、释义、例句、短语、同义词与真题例句）。</li>
-          <li>记忆算法：ts-fsrs（FSRS），四档反馈 Again / Hard / Good / Easy 动态排期。</li>
-          <li>状态模型：未学习 → 学习中 → 短期记忆 → 长期记忆 → 已掌握；遗忘后自动回到高频复习。</li>
-          <li>
-            词库共 {cet4Count} 个四级词、{cet6Count} 个六级词，重复词自动合并为 CET-4 + CET-6 双标签。
-          </li>
+          <li>记忆算法：ts-fsrs（FSRS）。认识 = Good、模糊 = Hard、不认识 = Again，系统据此决定这个单词之后的出现频率。</li>
+          <li>答“不认识 / 模糊”的单词会在今天的队列里反复出现，直到你选“认识”。</li>
+          <li>词库共 {cet4Count} 个四级词、{cet6Count} 个六级词，重复词自动合并为 CET-4 + CET-6 双标签。</li>
         </ul>
       </Card>
     </div>

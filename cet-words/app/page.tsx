@@ -81,15 +81,24 @@ export default function TodayPage() {
 
       <Card>
         <div className="mb-3 flex items-center justify-between">
-          <h2 className="text-base font-semibold text-slate-900">今日任务</h2>
-          <span className="text-xs text-slate-500">Review First</span>
+          <h2 className="flex items-center gap-2 text-base font-semibold text-slate-900">
+            今日任务
+            <span className="rounded-full bg-indigo-50 px-2 py-0.5 text-[11px] font-medium text-indigo-700">
+              {plan.scopeName} · {plan.scopedTotal} 词
+            </span>
+          </h2>
+          <span className="text-xs text-slate-500">新词 + 复习 每天都有</span>
         </div>
         <div className="grid gap-3 sm:grid-cols-3">
           <Link href="/review" className="flex items-center gap-3 rounded-xl border border-slate-200 p-3 transition hover:border-indigo-200 hover:bg-indigo-50/40">
             <RefreshCw className="h-5 w-5 text-sky-500" />
             <div>
-              <div className="text-xs text-slate-500">待复习</div>
-              <div className="text-xl font-semibold tabular-nums text-slate-900">{plan.counts.due}</div>
+              <div className="text-xs text-slate-500">
+                待复习{plan.counts.extra > 0 ? `（含巩固 ${plan.counts.extra}）` : ""}
+              </div>
+              <div className="text-xl font-semibold tabular-nums text-slate-900">
+                {plan.counts.due + plan.counts.extra}
+              </div>
             </div>
           </Link>
           <Link href="/learn" className="flex items-center gap-3 rounded-xl border border-slate-200 p-3 transition hover:border-indigo-200 hover:bg-indigo-50/40">
@@ -166,7 +175,12 @@ export default function TodayPage() {
         />
         <StatCard label="已掌握" value={plan.mastered} tone="emerald" sub="稳定记忆 ≥ 3 个月" />
         <StatCard label="学习中" value={plan.learning} tone="indigo" sub="含短期/长期记忆" />
-        <StatCard label="未学习" value={plan.remaining} tone="slate" sub={`${examLabel} 词库共 ${plan.totalInLevel} 词`} />
+        <StatCard
+          label="未学习"
+          value={plan.remaining}
+          tone="slate"
+          sub={`词单「${plan.scopeName}」共 ${plan.scopedTotal} 词`}
+        />
       </div>
 
       <Card>
@@ -175,7 +189,9 @@ export default function TodayPage() {
           <div className="rounded-xl bg-slate-50 p-3">
             <div className="text-xs text-slate-500">剩余未学</div>
             <div className="mt-0.5 text-lg font-semibold tabular-nums">{plan.remaining}</div>
-            <div className="text-[11px] text-slate-400">共 {plan.totalInLevel} 词</div>
+            <div className="text-[11px] text-slate-400">
+              词单「{plan.scopeName}」共 {plan.scopedTotal} 词
+            </div>
           </div>
           <div className="rounded-xl bg-slate-50 p-3">
             <div className="text-xs text-slate-500">建议每日学习量</div>
@@ -183,13 +199,18 @@ export default function TodayPage() {
             <div className="text-[11px] text-slate-400">按考试日期倒推（留 {plan.reviewBufferDays || 16} 天强化）</div>
           </div>
           <div className="rounded-xl bg-slate-50 p-3">
-            <div className="text-xs text-slate-500">当前每日目标</div>
+            <div className="text-xs text-slate-500">
+              {plan.planMode === "exam" ? "考前背完 · 每日目标" : "当前每日目标"}
+            </div>
             <div className="mt-0.5 text-lg font-semibold tabular-nums">
               {plan.newTarget}
               {plan.catchUp > 0 ? <span className="ml-1 text-xs text-amber-600">含追赶 +{plan.catchUp}</span> : null}
             </div>
             <div className="text-[11px] text-slate-400">
-              基础 {plan.baseTarget} 个 / 天
+              {plan.planMode === "exam"
+                ? `倒推需要 ${plan.perDayNeeded} 个 / 天 · 留 ${settings?.examBufferDays ?? 14} 天复习`
+                : `基础 ${plan.baseTarget} 个 / 天`}
+              {plan.minNewApplied ? " · 已补足到至少 5 个" : ""}
               {plan.timeBudget.capped ? ` · 预算上限 ${plan.timeBudget.newCap} 个` : ""}
             </div>
           </div>

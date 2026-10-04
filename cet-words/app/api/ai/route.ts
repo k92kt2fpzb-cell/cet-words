@@ -107,14 +107,15 @@ export async function POST(req: NextRequest) {
     return json({ error: "请求体不是合法 JSON" }, 400);
   }
 
-  const key = (req.headers.get("x-ai-key") || process.env.DEEPSEEK_API_KEY || "").trim();
+  // 每名用户使用自己的 Key（只存在浏览器本地），服务端不预置任何密钥
+  const key = (req.headers.get("x-ai-key") || "").trim();
   if (!key) {
-    return json({ error: "还没有配置 DeepSeek API Key，请在「设置 → AI 助手」里填写" }, 400);
+    return json({ error: "请先在「设置 → AI 助手」里填写你自己的 DeepSeek API Key（不填则无法使用 AI 功能）" }, 400);
   }
-  const base = (req.headers.get("x-ai-base") || process.env.DEEPSEEK_BASE_URL || DEFAULT_BASE)
+  const base = (req.headers.get("x-ai-base") || DEFAULT_BASE)
     .trim()
     .replace(/\/+$/, "");
-  const model = (body.model || process.env.DEEPSEEK_MODEL || "deepseek-chat").trim();
+  const model = (body.model || "deepseek-chat").trim();
   const messages = buildMessages(body);
   if (!messages) return json({ error: "未知的 AI 任务类型或缺少参数" }, 400);
 
@@ -162,10 +163,3 @@ export async function POST(req: NextRequest) {
   });
 }
 
-export async function GET() {
-  return json({
-    hasServerKey: Boolean(process.env.DEEPSEEK_API_KEY),
-    defaultBase: process.env.DEEPSEEK_BASE_URL || DEFAULT_BASE,
-    defaultModel: process.env.DEEPSEEK_MODEL || "deepseek-chat",
-  });
-}

@@ -1,5 +1,5 @@
 import { db } from "./db";
-import type { Level, Word } from "./types";
+import type { Level, StudyScope, Word } from "./types";
 
 const BANK_KEY = "bank";
 
@@ -69,4 +69,53 @@ export async function ensureBankLoaded(
 
 export async function totalInLevel(level: Level): Promise<number> {
   return db.words.where(levelField(level)).equals(1).count();
+}
+
+/** 词单（学习范围）：把词库切成用户可选的几个包 */
+export const STUDY_SCOPES: { key: StudyScope; label: string; desc: string }[] = [
+  { key: "all", label: "考纲全量", desc: "该级别词库的全部单词，适合时间充裕、想全面覆盖" },
+  { key: "core", label: "高频重点", desc: "真题高频 + 核心词（分层 1-2 级），性价比最高，推荐" },
+  { key: "sprint", label: "考前急救", desc: "最高频真题词 + 熟词僻义，约 500 词，适合考前两周" },
+  { key: "exam", label: "真题词", desc: "近十年四六级真题里出现过的单词" },
+  { key: "poly", label: "熟词僻义专项", desc: "认识但容易考偏释义的单词，单独突破" },
+];
+
+export function scopeMatch(
+  row: { tier?: number; poly?: number; examCount?: number },
+  scope: StudyScope,
+): boolean {
+  const tier = row.tier ?? 6;
+  switch (scope) {
+    case "core":
+      return tier <= 2;
+    case "sprint":
+      return tier === 1 || (row.poly ?? 0) === 1;
+    case "exam":
+      return (row.examCount ?? 0) > 0;
+    case "poly":
+      return (row.poly ?? 0) === 1;
+    default:
+      return true;
+  }
+}
+
+export function scopeLabel(scope: StudyScope): string {
+  return STUDY_SCOPES.find((s) => s.key === scope)?.label ?? "考纲全量";
+}
+
+export function scopeMatchWord(w: Word, scope: StudyScope): boolean {
+  return scopeMatch({ tier: w.tier, poly: w.poly ? 1 : 0, examCount: w.exam.count }, scope);
+}
+
+/** 当前级别下各词单的单词数量 */
+export async function scopeCounts(level: Level): Promise<Record<StudyScope, number>> {
+  const rows = await db.index.where(levelField(level)).equals(1).toArray();
+  const counts: Record<StudyScope, number> = { all: rows.length, core: 0, sprint: 0, exam: 0, poly: 0 };
+  for (const row of rows) {
+    if (scopeMatch(row, "core")) counts.core += 1;
+    if (scopeMatch(row, "sprint")) counts.sprint += 1;
+    if (scopeMatch(row, "exam")) counts.exam += 1;
+    if (scopeMatch(row, "poly")) counts.poly += 1;
+  }
+  return counts;
 }

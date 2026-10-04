@@ -1,14 +1,16 @@
 import { createEmptyCard, Rating, State, type Grade } from "ts-fsrs";
-import { db, blankProgress } from "./db";
+import { blankProgress, db } from "./db";
 import { addDays, dateKey, dayDiff, daysUntil, todayKey } from "./date";
-import { cardFromProgress, isSameSession, scheduler, statusOf } from "./fsrs";
+import { cardFromProgress, retrievability, scheduler, statusOf } from "./fsrs";
 import { SECONDS_PER_NEW_WORD, SECONDS_PER_REVIEW, SPRINT_DAYS, dailyNewTarget } from "./settings";
-import type { Progress, Settings, Word, WordStatus } from "./types";
-import { levelField, matchLevel } from "./wordbank";
+import type { NewPlanMode, Progress, Settings, StudyScope, Word, WordStatus } from "./types";
+import { levelField, matchLevel, scopeLabel, scopeMatch, scopeMatchWord } from "./wordbank";
 
 export interface PlanCounts {
   /** 到期复习 */
   due: number;
+  /** 没有到期卡片时的“巩固复习”（记忆最弱的已学单词） */
+  extra: number;
   /** 遗忘词（Again 后重新进入学习） */
   lapsed: number;
   /** 顽固词 */
@@ -19,10 +21,23 @@ export interface PlanCounts {
   exam: number;
 }
 
+export interface TimeBudget {
+  minutes: number;
+  reviewMinutes: number;
+  newMinutes: number;
+  usedMinutes: number;
+  newCap: number;
+  capped: boolean;
+  over: boolean;
+}
+
 export interface TodayPlan {
   daysLeft: number;
   sprint: boolean;
-  totalInLevel: number;
+  scope: StudyScope;
+  scopeName: string;
+  scopedTotal: number;
+  baseTotal: number;
   learned: number;
   remaining: number;
   mastered: number;
@@ -33,6 +48,9 @@ export interface TodayPlan {
   catchUp: number;
   lagging: number;
   suggestedDaily: number;
+  perDayNeeded: number;
+  planMode: NewPlanMode;
+  minNewApplied: boolean;
   firstRoundDays: number;
   firstRoundDate: string;
   reviewBufferDays: number;
@@ -42,19 +60,24 @@ export interface TodayPlan {
   todayDurationMs: number;
   todayTotal: number;
   todayDone: number;
-  timeBudget: {
-    minutes: number;
-    reviewMinutes: number;
-    newMinutes: number;
-    usedMinutes: number;
-    newCap: number;
-    capped: boolean;
-    over: boolean;
-  };
+  timeBudget: TimeBudget;
 }
 
 function isLevel(p: Progress, level: "l4" | "l6"): boolean {
   return (level === "l4" ? p.l4 : p.l6) === 1;
+}
+
+const EXTRA_REVIEW_MAX = 8;
+
+/** 没有到期卡片时，挑记忆保持率最低的已学单词做巩固复习（保证每天都有复习） */
+export function pickExtraReview(rows: Progress[], n = EXTRA_REVIEW_MAX): Progress[] {
+  const now = new Date();
+  return rows
+    .filter((p) => p.reps > 0 && p.state !== State.New)
+    .map((p) => ({ p, r: retrievability(p, now) }))
+    .sort((a, b) => a.r - b.r)
+    .slice(0, n)
+    .map((item) => item.p);
 }
 
 export async function buildTodayPlan(s: Settings): Promise<TodayPlan> {
@@ -62,11 +85,18 @@ export async function buildTodayPlan(s: Settings): Promise<TodayPlan> {
   const nowTs = now.getTime();
   const field = levelField(s.examType);
 
-  const totalInLevelCount = await db.words.where(field).equals(1).count();
+  const baseTotal = await db.words.where(field).equals(1).count();
+  const indexRows = await db.index.where(field).equals(1).toArray();
+  const scopeRows = indexRows.filter((r) => scopeMatch(r, s.studyScope));
+  const scopedTotal = scopeRows.length;
+
   const allProgress = await db.progress.toArray();
   const levelProgress = allProgress.filter((p) => isLevel(p, field));
-  const learned = levelProgress.length;
-  const remaining = Math.max(0, totalInLevelCount - learned);
+  const learnedWords = new Set(levelProgress.map((p) => p.word));
+  const remainingInScope = scopeRows.filter((r) => !learnedWords.has(r.word.toLowerCase())).length;
+  const learned = Math.max(0, scopedTotal - remainingInScope);
+  const remaining = remainingInScope;
+
   const daysLeft = daysUntil(s.examDate);
   const sprint = daysLeft <= SPRINT_DAYS;
 
@@ -79,40 +109,58 @@ export async function buildTodayPlan(s: Settings): Promise<TodayPlan> {
   const studyDaysLeft = Math.max(1, daysLeft - reviewBufferDays);
   const suggestedDaily = Math.min(200, Math.max(s.dailyNew, Math.ceil(remaining / studyDaysLeft)));
 
-  const dueAll = levelProgress.filter((p) => p.due <= nowTs);
+  // “考前背完”模式：按剩余天数倒推每天必须学多少
+  const perDayNeeded = remaining > 0 ? Math.ceil(remaining / Math.max(1, daysLeft - s.examBufferDays)) : 0;
+  const planned =
+    s.newPlanMode === "exam"
+      ? Math.min(200, perDayNeeded)
+      : Math.min(remaining, dailyNewTarget(s, daysLeft, lagging));
+
+  const dueRows = levelProgress.filter((p) => p.due <= nowTs);
+  // 每天都要有新学 + 复习：没有到期卡片时安排巩固复习
+  const extraRows = dueRows.length === 0 ? pickExtraReview(levelProgress) : [];
   const counts: PlanCounts = {
-    due: dueAll.length,
-    lapsed: dueAll.filter((p) => p.state === State.Relearning).length,
-    stubborn: dueAll.filter((p) => p.troublesome === 1).length,
-    poly: dueAll.filter((p) => p.poly === 1 || p.polyManual === 1).length,
-    exam: dueAll.filter((p) => p.examCount > 0).length,
+    due: dueRows.length,
+    extra: extraRows.length,
+    lapsed: dueRows.filter((p) => p.state === State.Relearning).length,
+    stubborn: dueRows.filter((p) => p.troublesome === 1).length,
+    poly: dueRows.filter((p) => p.poly === 1 || p.polyManual === 1).length,
+    exam: dueRows.filter((p) => p.examCount > 0).length,
   };
 
-  // 每日学习时间真正参与排课：先安排复习，剩余时间才用来学新词
-  const reviewMinutes = (counts.due * SECONDS_PER_REVIEW) / 60;
+  const reviewCount = counts.due + counts.extra;
+  const reviewMinutes = (reviewCount * SECONDS_PER_REVIEW) / 60;
   const newCap = Math.floor((Math.max(0, s.dailyMinutes - reviewMinutes) * 60) / SECONDS_PER_NEW_WORD);
-  const rawNewTarget = Math.min(remaining, dailyNewTarget(s, daysLeft, lagging));
-  const newTarget = Math.max(0, Math.min(rawNewTarget, newCap));
+
+  // 每天至少 5 个新词（词单还没学完、且时间预算允许时）
+  const minNew = Math.min(5, remaining);
+  const rawNewTarget = Math.min(planned, remaining);
+  const newTarget = Math.max(0, Math.min(Math.max(planned, minNew), newCap, remaining));
+  const minNewApplied = newTarget > rawNewTarget;
   const catchUp = Math.max(0, newTarget - Math.min(s.dailyNew, newTarget));
   const firstRoundDays = newTarget > 0 ? Math.ceil(remaining / newTarget) : 0;
-  const timeBudget = {
+
+  const timeBudget: TimeBudget = {
     minutes: s.dailyMinutes,
     reviewMinutes: Math.round(reviewMinutes),
     newMinutes: Math.round((newTarget * SECONDS_PER_NEW_WORD) / 60),
     usedMinutes: Math.round(reviewMinutes + (newTarget * SECONDS_PER_NEW_WORD) / 60),
     newCap,
-    capped: newTarget < rawNewTarget,
+    capped: newTarget < Math.max(planned, minNew),
     over: reviewMinutes >= s.dailyMinutes,
   };
 
   const day = (await db.days.get(todayKey())) ?? { date: todayKey(), newWords: 0, reviews: 0, durationMs: 0 };
-  const todayTotal = counts.due + newTarget;
+  const todayTotal = reviewCount + newTarget;
   const todayDone = Math.min(todayTotal, day.newWords + day.reviews);
 
   return {
     daysLeft,
     sprint,
-    totalInLevel: totalInLevelCount,
+    scope: s.studyScope,
+    scopeName: scopeLabel(s.studyScope),
+    scopedTotal,
+    baseTotal,
     learned,
     remaining,
     mastered: levelProgress.filter((p) => statusOf(p) === "mastered").length,
@@ -123,6 +171,9 @@ export async function buildTodayPlan(s: Settings): Promise<TodayPlan> {
     catchUp,
     lagging,
     suggestedDaily,
+    perDayNeeded,
+    planMode: s.newPlanMode,
+    minNewApplied,
     firstRoundDays,
     firstRoundDate: dateKey(addDays(now, firstRoundDays)),
     reviewBufferDays: Math.max(0, daysLeft - firstRoundDays),
@@ -136,7 +187,7 @@ export async function buildTodayPlan(s: Settings): Promise<TodayPlan> {
   };
 }
 
-export type QueueMode = "new" | "due" | "stubborn" | "lapsed" | "exam";
+export type QueueMode = "new" | "due" | "extra" | "stubborn" | "lapsed" | "exam";
 
 export interface QueueCard {
   word: Word;
@@ -148,6 +199,7 @@ export interface QueueCard {
 export const QUEUE_MODE_LABEL: Record<QueueMode, string> = {
   new: "今日新词",
   due: "到期复习",
+  extra: "巩固复习",
   stubborn: "顽固词",
   lapsed: "遗忘词",
   exam: "真题高频",
@@ -155,12 +207,11 @@ export const QUEUE_MODE_LABEL: Record<QueueMode, string> = {
 
 export async function buildLearnQueue(s: Settings, limit: number): Promise<QueueCard[]> {
   if (limit <= 0) return [];
-  const field = levelField(s.examType);
   const learned = new Set((await db.progress.toCollection().primaryKeys()) as string[]);
   const pool = await db.words
     .orderBy("priority")
     .reverse()
-    .filter((w) => matchLevel(w, s.examType) && !learned.has(w.word.toLowerCase()))
+    .filter((w) => matchLevel(w, s.examType) && scopeMatchWord(w, s.studyScope) && !learned.has(w.word.toLowerCase()))
     .limit(limit)
     .toArray();
   return pool.map((w) => ({ word: w, mode: "new" as QueueMode, isNew: true }));
@@ -171,7 +222,7 @@ function reviewScore(p: Progress, w: Word, sprint: boolean): number {
   if (p.troublesome === 1) score += 60;
   if (p.state === State.Relearning) score += 40;
   if (p.lapses > 0) score += 15;
-  if (p.poly === 1) score += sprint ? 12 : 6;
+  if (p.poly === 1 || p.polyManual === 1) score += sprint ? 12 : 6;
   const overdueDays = Math.min(14, Math.max(0, (Date.now() - p.due) / 86400000));
   score += overdueDays * 3;
   score += Math.min(30, w.exam.count) * (sprint ? 2.5 : 1);
@@ -179,7 +230,6 @@ function reviewScore(p: Progress, w: Word, sprint: boolean): number {
   return score;
 }
 
-/** 今日复习队列：顽固词 / 遗忘词 优先，其次是逾期最久、真题频率最高的词 */
 export interface SprintMixRow {
   label: string;
   target: number;
@@ -214,21 +264,39 @@ function bucketOf(p: Progress, w: Word): string {
 export async function buildReviewQueue(s: Settings): Promise<ReviewQueueResult> {
   const nowTs = Date.now();
   const field = levelField(s.examType);
-  const due = await db.progress.where("due").belowOrEqual(nowTs).toArray();
-  const rows = due.filter((p) => isLevel(p, field));
-  const words = await db.words.bulkGet(rows.map((r) => r.wordId));
+  const allProgress = await db.progress.toArray();
+  const levelRows = allProgress.filter((p) => isLevel(p, field));
+  const dueRows = levelRows.filter((p) => p.due <= nowTs);
+  // 每天都要有复习：没有到期的词时，挑记忆最弱的巩固一下
+  const extraRows = dueRows.length === 0 ? pickExtraReview(levelRows) : [];
+  const entries = [
+    ...dueRows.map((p) => ({ p, extra: false })),
+    ...extraRows.map((p) => ({ p, extra: true })),
+  ];
+  if (!entries.length) {
+    return { cards: [], sprint: false, capacity: 0, mix: [] };
+  }
+
+  const words = await db.words.bulkGet(entries.map((e) => e.p.wordId));
   const sprint = daysUntil(s.examDate) <= SPRINT_DAYS;
 
   const items: { card: QueueCard; score: number; bucket: string }[] = [];
-  rows.forEach((p, i) => {
+  entries.forEach((e, i) => {
     const w = words[i];
     if (!w) return;
-    const mode: QueueMode =
-      p.troublesome === 1 ? "stubborn" : p.state === State.Relearning ? "lapsed" : w.exam.count > 0 ? "exam" : "due";
+    const mode: QueueMode = e.extra
+      ? "extra"
+      : e.p.troublesome === 1
+        ? "stubborn"
+        : e.p.state === State.Relearning
+          ? "lapsed"
+          : w.exam.count > 0
+            ? "exam"
+            : "due";
     items.push({
-      card: { word: w, mode, isNew: false, progress: p },
-      score: reviewScore(p, w, sprint),
-      bucket: bucketOf(p, w),
+      card: { word: w, mode, isNew: false, progress: e.p },
+      score: reviewScore(e.p, w, sprint),
+      bucket: bucketOf(e.p, w),
     });
   });
   items.sort((a, b) => b.score - a.score);
@@ -239,12 +307,16 @@ export async function buildReviewQueue(s: Settings): Promise<ReviewQueueResult> 
 
   // 冲刺阶段按配额组卷，容量按每日学习时间折算（每分钟约 5 张复习卡）
   const capacity = Math.min(items.length, Math.max(20, Math.round(s.dailyMinutes * 5)));
-  const targets = SPRINT_MIX.map((m) => ({ key: m.key as string, label: m.label, target: Math.round(capacity * m.ratio) }));
+  const targets = SPRINT_MIX.map((m) => ({
+    key: m.key as string,
+    label: m.label,
+    target: Math.round(capacity * m.ratio),
+  }));
   const picked: typeof items = [];
   const used: Record<string, number> = {};
   for (const t of targets) {
-    const pool = items.filter((it) => it.bucket === t.key && !picked.includes(it));
-    for (const it of pool) {
+    for (const it of items) {
+      if (it.bucket !== t.key || picked.includes(it)) continue;
       if ((used[t.key] ?? 0) >= t.target) break;
       picked.push(it);
       used[t.key] = (used[t.key] ?? 0) + 1;
@@ -269,7 +341,7 @@ export interface RatingResult {
   requeue: boolean;
 }
 
-/** 提交一次记忆反馈（Again/Hard/Good/Easy）并写入 FSRS 调度结果 */
+/** 提交一次记忆反馈并写入 FSRS 调度结果 */
 export async function recordRating(opts: {
   word: Word;
   rating: number;
@@ -319,8 +391,8 @@ export async function recordRating(opts: {
   };
 
   const isNew = !existing;
-  const wordCounts = await db.days.get(todayKey());
-  const day = wordCounts ?? { date: todayKey(), newWords: 0, reviews: 0, durationMs: 0 };
+  const todayRow = await db.days.get(todayKey());
+  const day = todayRow ?? { date: todayKey(), newWords: 0, reviews: 0, durationMs: 0 };
 
   await db.transaction("rw", db.progress, db.logs, db.days, async () => {
     await db.progress.put(record);
@@ -341,14 +413,20 @@ export async function recordRating(opts: {
   });
 
   const dueIn = next.due.getTime() - now.getTime();
-  return { progress: record, dueIn, requeue: isSameSession(dueIn) };
+  return { progress: record, dueIn, requeue: true };
 }
 
 export async function toggleFavorite(word: Word): Promise<number> {
   const key = word.word.toLowerCase();
   const existing = await db.progress.get(key);
   if (!existing) {
-    const blank = { ...blankProgress(word), favorite: 1, due: Date.now() + 3650 * 86400000, state: State.New, status: "new" as WordStatus };
+    const blank = {
+      ...blankProgress(word),
+      favorite: 1,
+      due: Date.now() + 3650 * 86400000,
+      state: State.New,
+      status: "new" as WordStatus,
+    };
     await db.progress.put(blank);
     return 1;
   }

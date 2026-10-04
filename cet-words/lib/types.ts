@@ -1,5 +1,11 @@
 export type Level = "CET4" | "CET6";
 
+/** 词单（学习范围）：同一级别下可选的词汇包 */
+export type StudyScope = "all" | "core" | "sprint" | "exam" | "poly";
+
+/** 每日新词数量的决定方式 */
+export type NewPlanMode = "custom" | "exam";
+
 export interface WordSense {
   pos: string;
   cn: string;
@@ -155,4 +161,14 @@ export interface Settings {
   aiModel: string;
   /** AI 例句的个性化背景，例如“工科学生” */
   aiMajor: string;
+  /** 学习范围（词单） */
+  studyScope: StudyScope;
+  /** custom = 自己定每日新词数；exam = 在考试前背完（自动倒推） */
+  newPlanMode: NewPlanMode;
+  /** 考前背完模式：提前多少天完成第一轮 */
+  examBufferDays: number;
+  /** 每背完多少个词弹一次阶段复习，0 = 关闭 */
+  batchReview: number;
+  /** 学新词时自动调用 AI 助记（需要自己填 Key） */
+  autoAiMnemonic: boolean;
 }
