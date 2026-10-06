@@ -1,7 +1,7 @@
 "use client";
 
 import { useLiveQuery } from "dexie-react-hooks";
-import { Download, RotateCcw } from "lucide-react";
+import { Download, RotateCcw, Upload } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Card, btn } from "@/components/ui";
 import { testAiConnection } from "@/lib/ai";
@@ -10,7 +10,7 @@ import { db } from "@/lib/db";
 import { useSettings } from "@/lib/hooks";
 import { buildTodayPlan, resetAllProgress } from "@/lib/scheduler";
 import { SECONDS_PER_NEW_WORD, SECONDS_PER_REVIEW } from "@/lib/settings";
-import type { Level } from "@/lib/types";
+import type { DayStat, Level, Progress, ReviewLog, Settings } from "@/lib/types";
 import { STUDY_SCOPES, scopeCounts } from "@/lib/wordbank";
 
 function SegButton({
@@ -78,6 +78,31 @@ export default function SettingsPage() {
     link.download = `cet-words-backup-${todayKey()}.json`;
     link.click();
     URL.revokeObjectURL(url);
+  }
+
+  async function importData(file: File) {
+    try {
+      const payload = JSON.parse(await file.text()) as Record<string, unknown>;
+      const rows = (value: unknown, key: string) =>
+        Array.isArray(value) && value.every((row) => row && typeof row === "object" && typeof row[key] === "string");
+      if (!payload || typeof payload !== "object" || !payload.settings ||
+        typeof payload.settings !== "object" ||
+        !["CET4", "CET6"].includes((payload.settings as Settings).examType) ||
+        !rows(payload.progress, "word") || !rows(payload.logs, "word") || !rows(payload.days, "date")) {
+        throw new Error("文件不是有效的 CET Words 学习数据备份");
+      }
+      if (!window.confirm("导入会覆盖此程序当前的学习进度和设置。确定继续吗？")) return;
+      await db.transaction("rw", db.progress, db.logs, db.days, db.meta, async () => {
+        await Promise.all([db.progress.clear(), db.logs.clear(), db.days.clear()]);
+        await db.progress.bulkPut(payload.progress as Progress[]);
+        await db.logs.bulkPut(payload.logs as ReviewLog[]);
+        await db.days.bulkPut(payload.days as DayStat[]);
+        await db.meta.put({ key: "settings", value: payload.settings });
+      });
+      window.location.reload();
+    } catch (error) {
+      window.alert(`导入失败：${(error as Error).message}`);
+    }
   }
 
   return (
@@ -391,12 +416,21 @@ export default function SettingsPage() {
 
       <Card>
         <h2 className="text-base font-semibold text-slate-900">数据管理</h2>
-        <p className="mt-1 text-xs text-slate-500">所有学习数据都保存在本机浏览器（IndexedDB），不会上传到服务器。</p>
+        <p className="mt-1 text-xs text-slate-500">学习数据保存在本机。换到桌面程序时，可在旧版导出，再在这里导入。</p>
         <div className="mt-3 flex flex-wrap gap-3">
           <button className={btn.ghost} onClick={exportData}>
             <Download className="h-4 w-4" />
             导出学习数据
           </button>
+          <label className={btn.ghost + " cursor-pointer"}>
+            <Upload className="h-4 w-4" />
+            导入学习数据
+            <input type="file" accept="application/json,.json" className="hidden" onChange={(event) => {
+              const file = event.target.files?.[0];
+              if (file) void importData(file);
+              event.target.value = "";
+            }} />
+          </label>
           <button
             className={`${btn.ghost} text-rose-600`}
             onClick={async () => {
@@ -441,7 +475,7 @@ export default function SettingsPage() {
           {updateMessage ? <span className="text-xs text-slate-600">{updateMessage}</span> : null}
         </div>
         <p className="mt-2 text-xs text-slate-400">
-          安装版会在每次启动时自动检查更新（更新源由分享者在 update-config.txt 里配置）；开发环境不联网检查。
+          免安装版可通过 update-config.txt 配置更新源；桌面安装版请使用新版安装包升级。
         </p>
       </Card>
     </div>

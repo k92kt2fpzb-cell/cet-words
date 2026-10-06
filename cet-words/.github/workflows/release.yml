@@ -1,0 +1,44 @@
+name: Release Windows desktop app
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci
+      - run: npm run desktop:package
+      - name: Build legacy ZIP for existing users
+        shell: pwsh
+        run: |
+          $env:CET_NODE_EXE = (Get-Command node).Source
+          node scripts/make-package.mjs --skip-build
+      - name: Publish release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $version = (Get-Content package.json | ConvertFrom-Json).version
+          if ($env:GITHUB_REF_NAME -ne "v$version") { throw "Tag and package version differ" }
+          $assets = @(
+            "release-desktop/CET Words Setup $version.exe",
+            "release-desktop/CET Words $version.exe",
+            "dist/CET-Words-$version-win64.zip"
+          )
+          if ($assets | Where-Object { -not (Test-Path -LiteralPath $_) }) { throw "Missing release asset" }
+          $assets | ForEach-Object {
+            $hash = (Get-FileHash -Algorithm SHA256 -LiteralPath $_).Hash.ToLowerInvariant()
+            "$hash  $(Split-Path -Leaf $_)"
+          } | Set-Content -Encoding utf8 SHA256SUMS.txt
+          gh release create $env:GITHUB_REF_NAME @assets SHA256SUMS.txt --verify-tag --latest --title "CET Words $version · Windows 桌面版" --notes-file .github/release-notes.md

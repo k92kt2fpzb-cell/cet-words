@@ -1,12 +1,15 @@
 {
   "name": "cet-words",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "private": true,
+  "main": "desktop/main.cjs",
   "description": "CET Words - 四六级智能词汇学习与记忆管理系统",
   "scripts": {
     "dev": "next dev -p 3100",
     "build": "next build",
     "start": "next start -p 3100",
+    "desktop": "node scripts/prepare-desktop.mjs && electron .",
+    "desktop:package": "npm run build && node scripts/prepare-desktop.mjs && electron-builder --win nsis portable",
     "wordbank": "node scripts/build-wordbank.mjs"
   },
   "dependencies": {
@@ -23,7 +26,43 @@
     "@types/node": "^26.6.4",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
+    "electron": "^38.8.6",
+    "electron-builder": "^26.15.3",
     "tailwindcss": "^4.3.3",
     "typescript": "^7.0.2"
+  },
+  "build": {
+    "appId": "cn.local.cetwords",
+    "productName": "CET Words",
+    "directories": {
+      "output": "release-desktop"
+    },
+    "files": [
+      "desktop/main.cjs",
+      "cet-words.ico",
+      "package.json",
+      "!node_modules/**/*"
+    ],
+    "extraResources": [
+      {
+        "from": "desktop-dist/next",
+        "to": "next"
+      }
+    ],
+    "win": {
+      "icon": "cet-words.ico",
+      "target": [
+        "nsis",
+        "portable"
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": false,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "deleteAppDataOnUninstall": false
+    }
   }
 }

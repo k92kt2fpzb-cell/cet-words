@@ -142,7 +142,7 @@ const manifest = {
   url: `https://把这里换成你的直链地址/cet-words/CET-Words-app-${version}.zip`,
   sha256,
   size: updateSize,
-  notes: "修复无参数启动时启动脚本提示“下标越界”的问题。",
+  notes: "新增学习数据导入功能，便于迁移到桌面安装版。",
 };
 writeText(path.join(updateDir, "update.json"), JSON.stringify(manifest, null, 2) + "\n");
 
