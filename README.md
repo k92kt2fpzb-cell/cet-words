@@ -4,11 +4,11 @@
 
 ## Windows 安装
 
-可从 [GitHub Releases](https://github.com/k92kt2fpzb-cell/cet-words/releases/latest) 或 [阿里云国内下载源](https://cet-words.oss-cn-shanghai.aliyuncs.com/CET-Words-1.0.2-win64.zip) 下载最新的 `CET-Words-*-win64.zip`，解压后阅读其中的 `使用说明.txt`，双击 `安装到桌面.cmd`。之后可从桌面快捷方式打开。
+从 [最新 GitHub Release](https://github.com/k92kt2fpzb-cell/cet-words/releases/latest) 下载 **CET.Words.Setup.1.0.4.exe** 安装。安装后双击桌面图标，会打开独立程序窗口。也可以下载 **CET.Words.1.0.4.exe** 直接运行便携版。
 
-安装包内置运行环境。启动时优先检查[阿里云更新源](https://cet-words.oss-cn-shanghai.aliyuncs.com/update.json)，不可用时尝试 [GitHub 更新源](https://k92kt2fpzb-cell.github.io/cet-words/update.json)；学习记录保存在各自设备的浏览器数据中。
+旧版 Edge 中的学习记录不会自动转入桌面版。请先在旧版「设置 → 导出学习数据」，再在桌面版「设置 → 导入学习数据」。
 
-已安装 1.0.1 的用户如果需要双更新源，请下载并使用 1.0.2 完整安装包；旧版自动更新只替换应用文件，不会替换更新脚本与更新源配置。
+原有 `CET-Words-*-win64.zip` 仍在 Release 中提供给旧版用户；其自动更新使用独立的 [GitHub 更新源](https://k92kt2fpzb-cell.github.io/cet-words/update.json)。桌面安装版升级时请下载新版安装包。
 
 源码、开发说明和数据来源见 [cet-words/README.md](cet-words/README.md)。
 
