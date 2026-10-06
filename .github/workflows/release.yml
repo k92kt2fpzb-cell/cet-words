@@ -11,12 +11,16 @@ permissions:
 jobs:
   release:
     runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: cet-words
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
           cache: npm
+          cache-dependency-path: cet-words/package-lock.json
       - run: npm ci
       - run: npm run desktop:package
       - name: Build legacy ZIP for existing users
